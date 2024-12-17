@@ -8,14 +8,20 @@
         <div>
             <div>
                 <div>Device Group</div>
-                <select class="form-control" style="width: 200px" @bind="_selectedGroupId">
-                    <option value="@_deviceGroupAll">All</option>
-                    <option value="@_deviceGroupNone">None</option>
-                    @foreach (var group in _deviceGroups)
-                    {
-                        <option @key="group.ID" value="@group.ID">@group.Name</option>
-                    }
-                </select>
+                <div class="text-nowrap">
+                    <select class="form-control d-inline" style="width: 150px" @bind="_selectedGroupId">
+                        <option value="@_deviceGroupAll">All</option>
+                        <option value="@_deviceGroupNone">None</option>
+                        @foreach (var group in _deviceGroups)
+                        {
+                            <option @key="group.ID" value="@group.ID">@group.Name</option>
+                        }
+                    </select>
+                    <button class="btn btn-sm btn-secondary" title="Wake Devices in Group" style="width: 40px; margin-left: 5px;" @onclick="WakeDevices">
+                        <span class="oi oi-power-standby"></span>
+                    </button>
+
+                </div>
             </div>
 
             <div>
@@ -33,17 +39,17 @@
             </div>
 
             <div class="custom-control custom-checkbox mt-2">
-                <input id="hideOfflineDevicesCheckbox" type="checkbox" class="custom-control-input" @bind="_hideOfflineDevices" />
-                <label class="custom-control-label" for="hideOfflineDevicesCheckbox">Hide offline devices</label>
+                <input id="hideOfflineDevicesCheckbox" type="checkbox" class="custom-control-input align-middle" @bind="_hideOfflineDevices" />
+                <label class="custom-control-label align-middle" for="hideOfflineDevicesCheckbox">Hide offline devices</label>
             </div>
             <div class="mt-2">
-                <button class="btn btn-sm btn-secondary mr-2" @onclick="SelectAllCards">Select All</button>
+                <button class="btn btn-sm btn-secondary me-2" @onclick="SelectAllCards">Select All</button>
                 <button class="btn btn-sm btn-primary" @onclick="HandleRefreshClicked">Refresh</button>
             </div>
         </div>
          
         <div>
-            <div class="d-inline-block text-left">
+            <div class="d-inline-block text-start">
                 <div>
                     <div>Search</div>
                     <input class="form-control d-inline"
@@ -72,7 +78,7 @@
                         <option value="100">100</option>
                         <option value="200">200</option>
                     </select>
-                    <span class="ml-1 small">per page</span>
+                    <span class="ms-1 small">per page</span>
                 </div>
             </div>
            
@@ -80,10 +86,10 @@
         </div>
     </div>
     <div id="deviceListDiv" class="p-2 mb-5">
-        @foreach (var device in _devicesForPage)
+        @foreach (var device in DisplayedDevices)
         {
             <CascadingValue Value="this">
-                <DeviceCard @key="device.ID" Device="device" RemoteControlTargetLookup="_remoteControlTargetLookup" />
+                <DeviceCard @key="device.ID" Device="device" />
             </CascadingValue>
         }
     </div>

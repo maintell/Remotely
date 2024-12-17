@@ -1,130 +1,178 @@
 ﻿using Microsoft.AspNetCore.Identity;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.SignalR;
-using Remotely.Server.Attributes;
 using Remotely.Server.Hubs;
 using Remotely.Server.Models;
 using Remotely.Server.Services;
-using Remotely.Shared.Utilities;
-using Remotely.Shared.Models;
-using System;
-using System.Linq;
-using System.Threading.Tasks;
 using Remotely.Server.Auth;
+using Remotely.Shared.Helpers;
+using Remotely.Server.Extensions;
+using Remotely.Shared.Entities;
+using Remotely.Shared.Interfaces;
 
 // For more information on enabling Web API for empty projects, visit https://go.microsoft.com/fwlink/?LinkID=397860
 
-namespace Remotely.Server.API
+namespace Remotely.Server.API;
+
+[Route("api/[controller]")]
+[ApiController]
+public class RemoteControlController : ControllerBase
 {
-    [Route("api/[controller]")]
-    [ApiController]
-    public class RemoteControlController : ControllerBase
+    private readonly IHubContext<AgentHub, IAgentHubClient> _agentHub;
+    private readonly IRemoteControlSessionCache _remoteControlSessionCache;
+    private readonly IAgentHubSessionCache _serviceSessionCache;
+    private readonly IDataService _dataService;
+    private readonly IOtpProvider _otpProvider;
+    private readonly SignInManager<RemotelyUser> _signInManager;
+    private readonly ILogger<RemoteControlController> _logger;
+
+    public RemoteControlController(
+        SignInManager<RemotelyUser> signInManager,
+        IDataService dataService,
+        IRemoteControlSessionCache remoteControlSessionCache,
+        IHubContext<AgentHub, IAgentHubClient> agentHub,
+        IAgentHubSessionCache serviceSessionCache,
+        IOtpProvider otpProvider,
+        ILogger<RemoteControlController> logger)
     {
-        public RemoteControlController(IDataService dataService,
-            IHubContext<AgentHub> agentHub,
-            IApplicationConfig appConfig,
-            SignInManager<RemotelyUser> signInManager)
+        _dataService = dataService;
+        _agentHub = agentHub;
+        _remoteControlSessionCache = remoteControlSessionCache;
+        _serviceSessionCache = serviceSessionCache;
+        _otpProvider = otpProvider;
+        _signInManager = signInManager;
+        _logger = logger;
+    }
+
+    [HttpGet("{deviceID}")]
+    [ServiceFilter(typeof(ApiAuthorizationFilter))]
+    public async Task<IActionResult> Get(string deviceID)
+    {
+        if (!Request.Headers.TryGetOrganizationId(out var orgId))
         {
-            DataService = dataService;
-            AgentHubContext = agentHub;
-            AppConfig = appConfig;
-            SignInManager = signInManager;
+            return Unauthorized();
+        }
+        
+        return await InitiateRemoteControl(deviceID, orgId);
+    }
+
+    [HttpPost]
+    [Obsolete("This method is deprecated. Use the GET method along with API keys instead.")]
+    public async Task<IActionResult> Post([FromBody] RemoteControlRequest rcRequest)
+    {
+        var settings = await _dataService.GetSettings();
+        if (!settings.AllowApiLogin)
+        {
+            return NotFound();
         }
 
-        public IDataService DataService { get; }
-        public IHubContext<AgentHub> AgentHubContext { get; }
-        public IApplicationConfig AppConfig { get; }
-        public SignInManager<RemotelyUser> SignInManager { get; }
-
-        [HttpGet("{deviceID}")]
-        [ServiceFilter(typeof(ApiAuthorizationFilter))]
-        public async Task<IActionResult> Get(string deviceID)
+        if (string.IsNullOrWhiteSpace(rcRequest.Email) ||
+            string.IsNullOrWhiteSpace(rcRequest.Password) ||
+            string.IsNullOrWhiteSpace(rcRequest.DeviceID))
         {
-            Request.Headers.TryGetValue("OrganizationID", out var orgID);
-            return await InitiateRemoteControl(deviceID, orgID);
+            return BadRequest("Request body is missing required values.");
         }
 
-        [HttpPost]
-        public async Task<IActionResult> Post([FromBody] RemoteControlRequest rcRequest)
+        var userResult = await _dataService.GetUserByName(rcRequest.Email);
+        if (!userResult.IsSuccess)
         {
-            if (!AppConfig.AllowApiLogin)
-            {
-                return NotFound();
-            }
-
-            var orgId = DataService.GetUserByNameWithOrg(rcRequest.Email)?.OrganizationID;
-
-            var result = await SignInManager.PasswordSignInAsync(rcRequest.Email, rcRequest.Password, false, true);
-            if (result.Succeeded &&
-                DataService.DoesUserHaveAccessToDevice(rcRequest.DeviceID, DataService.GetUserByNameWithOrg(rcRequest.Email)))
-            {
-                DataService.WriteEvent($"API login successful for {rcRequest.Email}.", orgId);
-                return await InitiateRemoteControl(rcRequest.DeviceID, orgId);
-            }
-            else if (result.IsLockedOut)
-            {
-                DataService.WriteEvent($"API login unsuccessful due to lockout for {rcRequest.Email}.", orgId);
-                return Unauthorized("Account is locked.");
-            }
-            else if (result.RequiresTwoFactor)
-            {
-                DataService.WriteEvent($"API login unsuccessful due to 2FA for {rcRequest.Email}.", orgId);
-                return Unauthorized("Account requires two-factor authentication.");
-            }
-            DataService.WriteEvent($"API login unsuccessful due to bad attempt for {rcRequest.Email}.", orgId);
-            return BadRequest();
+            return NotFound();
         }
 
-        private async Task<IActionResult> InitiateRemoteControl(string deviceID, string orgID)
+        var orgId = userResult.Value.OrganizationID;
+
+        var result = await _signInManager.PasswordSignInAsync(rcRequest.Email, rcRequest.Password, false, true);
+        if (result.Succeeded &&
+            _dataService.DoesUserHaveAccessToDevice(rcRequest.DeviceID, userResult.Value))
         {
-            var targetDevice = AgentHub.ServiceConnections.FirstOrDefault(x =>
-                                    x.Value.OrganizationID == orgID &&
-                                    x.Value.ID.ToLower() == deviceID.ToLower());
+            _logger.LogInformation("API login successful for {rcRequestEmail}.", rcRequest.Email);
+            return await InitiateRemoteControl(rcRequest.DeviceID, orgId);
+        }
+        else if (result.IsLockedOut)
+        {
+            _logger.LogInformation("API login successful for {rcRequestEmail}.", rcRequest.Email);
+            return Unauthorized("Account is locked.");
+        }
+        else if (result.RequiresTwoFactor)
+        {
+            _logger.LogInformation("API login successful for {rcRequestEmail}.", rcRequest.Email);
+            return Unauthorized("Account requires two-factor authentication.");
+        }
+        _logger.LogInformation("API login unsuccessful due to bad attempt for {rcRequestEmail}.", rcRequest.Email);
+        return BadRequest();
+    }
 
-            if (targetDevice.Value != null)
+    private async Task<IActionResult> InitiateRemoteControl(string deviceID, string orgId)
+    {
+        if (!_serviceSessionCache.TryGetByDeviceId(deviceID, out var targetDevice) ||
+            !_serviceSessionCache.TryGetConnectionId(deviceID, out var serviceConnectionId))
+        {
+            return NotFound("The target device couldn't be found.");
+        }
+
+        if (targetDevice.OrganizationID != orgId)
+        {
+            return Unauthorized();
+        }
+
+        if (User.Identity?.IsAuthenticated == true)
+        {
+            var userResult = await _dataService.GetUserByName($"{User.Identity.Name}");
+
+            if (!userResult.IsSuccess)
             {
-                if (User.Identity.IsAuthenticated &&
-                   !DataService.DoesUserHaveAccessToDevice(targetDevice.Value.ID, DataService.GetUserByNameWithOrg(User.Identity.Name)))
-                {
-                    return Unauthorized();
-                }
-
-
-                var currentUsers = CasterHub.SessionInfoList.Count(x => x.Value.OrganizationID == orgID);
-                if (currentUsers >= AppConfig.RemoteControlSessionLimit)
-                {
-                    return BadRequest("There are already the maximum amount of active remote control sessions for your organization.");
-                }
-
-                var existingSessions = CasterHub.SessionInfoList
-                    .Where(x => x.Value.DeviceID == targetDevice.Value.ID)
-                    .Select(x => x.Key)
-                    .ToList();
-
-                await AgentHubContext.Clients.Client(targetDevice.Key).SendAsync("RemoteControl", Request.HttpContext.Connection.Id, targetDevice.Key);
-
-                bool remoteControlStarted()
-                {
-                    return !CasterHub.SessionInfoList.Values
-                        .Where(x => x.DeviceID == targetDevice.Value.ID)
-                        .All(x => existingSessions.Contains(x.CasterSocketID));
-                };
-
-                if (!await TaskHelper.DelayUntilAsync(remoteControlStarted, TimeSpan.FromSeconds(30)))
-                {
-                    return StatusCode(408, "The remote control process failed to start in time on the remote device.");
-                }
-                else
-                {
-                    var rcSession = CasterHub.SessionInfoList.Values.LastOrDefault(x => x.DeviceID == targetDevice.Value.ID && !existingSessions.Contains(x.CasterSocketID));
-                    var otp = RemoteControlFilterAttribute.GetOtp(targetDevice.Value.ID);
-                    return Ok($"{HttpContext.Request.Scheme}://{Request.Host}/RemoteControl?casterID={rcSession.CasterSocketID}&serviceID={targetDevice.Key}&fromApi=true&otp={Uri.EscapeDataString(otp)}");
-                }
+                return Unauthorized();
             }
-            else
+
+            if (!_dataService.DoesUserHaveAccessToDevice(targetDevice.ID, userResult.Value))
             {
-                return BadRequest("The target device couldn't be found.");
+                return Unauthorized();
             }
         }
+
+        var sessionCount = _remoteControlSessionCache.Sessions.Count(x => x.OrganizationId == orgId);
+
+        var sessionId = Guid.NewGuid();
+        var accessKey = RandomGenerator.GenerateAccessKey();
+
+        var session = new RemoteControlSession()
+        {
+            UnattendedSessionId = sessionId,
+            UserConnectionId = HttpContext.Connection.Id,
+            AgentConnectionId = serviceConnectionId,
+            DeviceId = deviceID,
+            OrganizationId = orgId
+        };
+
+        _remoteControlSessionCache.AddOrUpdate($"{sessionId}", session, (k, v) =>
+        {
+            v.AgentConnectionId = HttpContext.Connection.Id;
+            return v;
+        });
+
+        var orgNameResult = await _dataService.GetOrganizationNameById(orgId);
+
+        if (!orgNameResult.IsSuccess)
+        {
+            return BadRequest("Failed to resolve organization name.");
+        }
+
+        await _agentHub.Clients.Client(serviceConnectionId).RemoteControl(
+            sessionId,
+            accessKey,
+            HttpContext.Connection.Id,
+            string.Empty,
+            orgNameResult.Value,
+            orgId);
+
+        var waitResult = await session.WaitForSessionReady(TimeSpan.FromSeconds(30));
+        if (!waitResult)
+        {
+            return StatusCode(408, "The remote control process failed to start in time on the remote device.");
+        }
+       
+        var otp = _otpProvider.GetOtp(targetDevice.ID);
+
+        return Ok($"{HttpContext.Request.Scheme}://{Request.Host}/Viewer?mode=Unattended&sessionId={sessionId}&accessKey={accessKey}&otp={otp}");
     }
 }

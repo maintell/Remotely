@@ -1,10 +1,9 @@
-﻿namespace Remotely.Shared.Models
+﻿namespace Remotely.Shared.Models;
+
+public class ScreenCastRequest
 {
-    public class ScreenCastRequest
-    {
-        public bool NotifyUser { get; set; }
-        public string RequesterName { get; set; }
-        public string ViewerID { get; set; }
-        public bool UseWebRtc { get; set; }
-    }
+    public bool NotifyUser { get; set; }
+    public string RequesterName { get; set; } = string.Empty;
+    public string ViewerId { get; set; } = string.Empty;
+    public Guid StreamId { get; set; }
 }

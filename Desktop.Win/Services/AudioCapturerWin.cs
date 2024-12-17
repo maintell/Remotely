@@ -1,119 +1,101 @@
-﻿using NAudio.Wave;
-using Remotely.Desktop.Core.Interfaces;
-using System;
-using System.Collections.Concurrent;
-using System.Collections.Generic;
-using System.Diagnostics;
+﻿using Remotely.Desktop.Shared.Abstractions;
+using NAudio.Wave;
 using System.IO;
-using System.Linq;
 
-namespace Remotely.Desktop.Win.Services
+namespace Remotely.Desktop.Win.Services;
+
+public class AudioCapturerWin : IAudioCapturer
 {
-    public class AudioCapturerWin : IAudioCapturer
+    private readonly ILogger<AudioCapturerWin> _logger;
+    private readonly SemaphoreSlim _sendLock = new(1, 1);
+    private WasapiLoopbackCapture? _capturer;
+    private WaveFormat? _targetFormat;
+    public AudioCapturerWin(ILogger<AudioCapturerWin> logger)
     {
-        private readonly List<byte> _tempBuffer = new();
+        _logger = logger;
+    }
 
-        private WasapiLoopbackCapture _capturer;
-        private Stopwatch _sendTimer;
-        private WaveFormat _targetFormat;
+    public event EventHandler<byte[]>? AudioSampleReady;
 
-
-        public AudioCapturerWin()
+    public void ToggleAudio(bool toggleOn)
+    {
+        if (toggleOn)
         {
-            _targetFormat = new WaveFormat(16000, 8, 1);
+            Start();
+        }
+        else
+        {
+            Stop();
+        }
+    }
+
+    private async void Capturer_DataAvailable(object? sender, WaveInEventArgs args)
+    {
+        if (args.Buffer.All(x => x == 0))
+        {
+            return;
         }
 
-        public event EventHandler<byte[]> AudioSampleReady;
-        public void ToggleAudio(bool toggleOn)
+        try
         {
-            if (toggleOn)
+            await _sendLock.WaitAsync();
+
+            if (args.BytesRecorded > 0)
             {
-                Start();
-            }
-            else
-            {
-                Stop();
+                await SendTempBuffer(args.Buffer);
             }
         }
-
-        private void Capturer_DataAvailable(object sender, WaveInEventArgs args)
+        catch { }
+        finally
         {
-            try
-            {
-                if (args.Buffer.All(x => x == 0))
-                {
-                    return;
-                }
+            _sendLock.Release();
+        }
+    }
 
-                if (args.BytesRecorded > 0)
-                {
-                    lock (_tempBuffer)
-                    {
-                        if (!_sendTimer.IsRunning)
-                        {
-                            _sendTimer.Restart();
-                        }
-
-                        _tempBuffer.AddRange(args.Buffer.Take(args.BytesRecorded));
-
-                        if (_tempBuffer.Count > 50_000 ||
-                            _sendTimer.Elapsed.TotalMilliseconds > 1000)
-                        {
-                            _sendTimer.Reset();
-                            SendTempBuffer();
-                        }
-                    }
-                }
-            }
-            catch { }
+    private async Task SendTempBuffer(byte[] buffer)
+    {
+        if (_capturer is null)
+        {
+            _logger.LogWarning("Audio capturer is unexpectedly null.");
+            return;
         }
 
-        private void SendTempBuffer()
+        using var ms1 = new MemoryStream();
+        using (var wfw = new WaveFileWriter(ms1, _capturer.WaveFormat))
         {
-            if (_tempBuffer.Count == 0)
-            {
-                return;
-            }
-
-            using var ms1 = new MemoryStream();
-            using (var wfw = new WaveFileWriter(ms1, _capturer.WaveFormat))
-            {
-                wfw.Write(_tempBuffer.ToArray(), 0, _tempBuffer.Count);
-            }
-            _tempBuffer.Clear();
-
-            // Resample to 16-bit so Firefox will play it.
-            using var ms2 = new MemoryStream(ms1.ToArray());
-            using var wfr = new WaveFileReader(ms2);
-            using var ms3 = new MemoryStream();
-            using (var resampler = new MediaFoundationResampler(wfr, _targetFormat))
-            {
-                WaveFileWriter.WriteWavFileToStream(ms3, resampler);
-            }
-            AudioSampleReady?.Invoke(this, ms3.ToArray());
+            await wfw.WriteAsync(buffer);
         }
 
-        private void Start()
+        // Resample to 16-bit.
+        using var ms2 = new MemoryStream(ms1.ToArray());
+        using var wfr = new WaveFileReader(ms2);
+        using var ms3 = new MemoryStream();
+        using (var resampler = new MediaFoundationResampler(wfr, _targetFormat))
         {
-            try
-            {
-                _capturer = new WasapiLoopbackCapture();
-                _sendTimer = Stopwatch.StartNew();
-                _capturer.DataAvailable += Capturer_DataAvailable;
-                _capturer.StartRecording();
-            }
-            catch { }
+            WaveFileWriter.WriteWavFileToStream(ms3, resampler);
         }
+        AudioSampleReady?.Invoke(this, ms3.ToArray());
+    }
 
-        private void Stop()
+    private void Start()
+    {
+        try
         {
-            if (_capturer is not null)
-            {
-                _capturer.DataAvailable -= Capturer_DataAvailable;
-            }
-            _capturer?.StopRecording();
-            _capturer.Dispose();
-            _sendTimer?.Stop();
+            _capturer?.Dispose();
+            _capturer = new WasapiLoopbackCapture();
+            _targetFormat ??= new WaveFormat(16000, 8, 1);
+            _capturer.DataAvailable += Capturer_DataAvailable;
+
+            _capturer.StartRecording();
         }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error while creating audio capturer.  Make sure a sound device is installed and working.");
+        }
+    }
+
+    private void Stop()
+    {
+        _capturer?.StopRecording();
     }
 }

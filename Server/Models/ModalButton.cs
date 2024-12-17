@@ -1,12 +1,9 @@
-﻿using System;
+﻿namespace Remotely.Server.Models;
 
-namespace Remotely.Server.Models
+public class ModalButton
 {
-    public class ModalButton
-    {
-        public string Class { get; set; }
-        public string Text { get; set; }
+    public string Class { get; init; } = string.Empty;
+    public string Text { get; init; } = string.Empty;
 
-        public Action OnClick { get; set; }
-    }
+    public required Action OnClick { get; init; }
 }

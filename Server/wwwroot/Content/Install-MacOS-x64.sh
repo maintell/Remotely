@@ -4,6 +4,11 @@ HostName=
 Organization=
 GUID="$(uuidgen)"
 UpdatePackagePath=""
+InstallDir="/usr/local/bin/Remotely"
+ETag=$(curl --head $HostName/Content/Remotely-MacOS-x64.zip | grep -i "etag" | cut -d' ' -f 2)
+LogPath="/var/log/remotely/Agent_Install.log"
+
+mkdir -p /var/log/remotely
 
 Args=( "$@" )
 ArgLength=${#Args[@]}
@@ -11,14 +16,19 @@ ArgLength=${#Args[@]}
 for (( i=0; i<${ArgLength}; i+=2 ));
 do
     if [ "${Args[$i]}" = "--uninstall" ]; then
-        launchctl unload -w /Library/LaunchDaemons/remotely-agent.plist
-        rm -r -f /usr/local/bin/Remotely/
+        sudo launchctl bootout system /Library/LaunchDaemons/remotely-agent.plist
+        rm -r -f $InstallDir/
         rm -f /Library/LaunchDaemons/remotely-agent.plist
         exit
     elif [ "${Args[$i]}" = "--path" ]; then
         UpdatePackagePath="${Args[$i+1]}"
     fi
 done
+
+if [ -z "$ETag" ]; then
+    echo  "ETag is empty.  Aborting install." | tee -a $LogPath
+    exit 1
+fi
 
 
 # Install Homebrew
@@ -31,19 +41,13 @@ Owner=$(ls -l /usr/local/bin/brew | awk '{print $3}')
 
 su - $Owner -c "brew update"
 
-# Install .NET Runtime
-su - $Owner -c "brew install --cask dotnet"
-
-# Install dependency for System.Drawing.Common
-su - $Owner -c "brew install mono-libgdiplus"
-
 # Install other dependencies
 su - $Owner -c "brew install curl"
 su - $Owner -c "brew install jq"
 
 
-if [ -f "/usr/local/bin/Remotely/ConnectionInfo.json" ]; then
-    SavedGUID=`su - $Owner -c "cat '/usr/local/bin/Remotely/ConnectionInfo.json' | jq -r '.DeviceID'"`
+if [ -f "$InstallDir/ConnectionInfo.json" ]; then
+    SavedGUID=`su - $Owner -c "cat '$InstallDir/ConnectionInfo.json' | jq -r '.DeviceID'"`
     if [[ "$SavedGUID" != "null" && -n "$SavedGUID" ]]; then
         GUID="$SavedGUID"
     fi
@@ -52,22 +56,22 @@ fi
 rm -r -f /Applications/Remotely
 rm -f /Library/LaunchDaemons/remotely-agent.plist
 
-mkdir -p /usr/local/bin/Remotely/
-chmod -R 755 /usr/local/bin/Remotely/
-cd /usr/local/bin/Remotely/
+mkdir -p $InstallDir
+chmod -R 755 $InstallDir
 
 if [ -z "$UpdatePackagePath" ]; then
     echo  "Downloading client..." >> /tmp/Remotely_Install.log
-    curl $HostName/Content/Remotely-MacOS-x64.zip --output /usr/local/bin/Remotely/Remotely-MacOS-x64.zip
+    curl $HostName/Content/Remotely-MacOS-x64.zip --output $InstallDir/Remotely-MacOS-x64.zip
 else
     echo  "Copying install files..." >> /tmp/Remotely_Install.log
-    cp "$UpdatePackagePath" /usr/local/bin/Remotely/Remotely-MacOS-x64.zip
+    cp "$UpdatePackagePath" $InstallDir/Remotely-MacOS-x64.zip
     rm -f "$UpdatePackagePath"
 fi
 
-unzip -o ./Remotely-MacOS-x64.zip
-rm -f ./Remotely-MacOS-x64.zip
-
+unzip -o $InstallDir/Remotely-MacOS-x64.zip -d $InstallDir
+rm -f $InstallDir/Remotely-MacOS-x64.zip
+chmod +x $InstallDir/Remotely_Agent
+chmod +x $InstallDir/Desktop/Remotely_Desktop
 
 connectionInfo="{
     \"DeviceID\":\"$GUID\", 
@@ -76,9 +80,9 @@ connectionInfo="{
     \"ServerVerificationToken\":\"\"
 }"
 
-echo "$connectionInfo" > ./ConnectionInfo.json
+echo "$connectionInfo" > $InstallDir/ConnectionInfo.json
 
-curl --head $HostName/Content/Remotely-MacOS-x64.zip | grep -i "etag" | cut -d' ' -f 2 > ./etag.txt
+curl --head $HostName/Content/Remotely-MacOS-x64.zip | grep -i "etag" | cut -d' ' -f 2 > $InstallDir/etag.txt
 
 
 plistFile="<?xml version=\"1.0\" encoding=\"UTF-8\"?>
@@ -89,8 +93,7 @@ plistFile="<?xml version=\"1.0\" encoding=\"UTF-8\"?>
     <string>com.translucency.remotely-agent</string>
     <key>ProgramArguments</key>
     <array>
-        <string>/usr/local/bin/dotnet</string>
-        <string>/usr/local/bin/Remotely/Remotely_Agent.dll</string>
+        <string>$InstallDir/Remotely_Agent</string>
     </array>
     <key>KeepAlive</key>
     <true/>
@@ -98,5 +101,5 @@ plistFile="<?xml version=\"1.0\" encoding=\"UTF-8\"?>
 </plist>"
 echo "$plistFile" > "/Library/LaunchDaemons/remotely-agent.plist"
 
-launchctl load -w /Library/LaunchDaemons/remotely-agent.plist
-launchctl kickstart -k system/com.translucency.remotely-agent
+sudo launchctl bootstrap system /Library/LaunchDaemons/remotely-agent.plist
+sudo launchctl kickstart -k system/com.translucency.remotely-agent

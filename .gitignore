@@ -293,3 +293,7 @@ Server/.config/dotnet-tools.json
 Server.Installer/Properties/launchSettings.json
 .DS_Store
 /Server/wwwroot/Content/Linux-x64/Remotely_Desktop
+!/.vscode/launch.json
+!/.vscode/tasks.json
+/Server/appsettings.Development.json
+/Server/AppData

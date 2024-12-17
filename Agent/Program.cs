@@ -2,132 +2,155 @@
 using Microsoft.Extensions.Logging;
 using Remotely.Agent.Interfaces;
 using Remotely.Agent.Services;
-using Remotely.Shared.Enums;
 using Remotely.Shared.Utilities;
 using Remotely.Shared.Services;
 using System;
-using System.Diagnostics;
 using System.IO;
-using System.ServiceProcess;
-using System.Threading;
 using System.Threading.Tasks;
+using System.Runtime.Versioning;
+using Remotely.Agent.Services.Linux;
+using Remotely.Agent.Services.MacOS;
+using Remotely.Agent.Services.Windows;
+using Microsoft.Extensions.Hosting;
+using System.Linq;
+using Microsoft.Win32;
+using System.Reflection;
 
-namespace Remotely.Agent
+namespace Remotely.Agent;
+
+public class Program
 {
-    public class Program
+    public static async Task Main(string[] args)
     {
-
-        public static IServiceProvider Services { get; set; }
-
-        public static async Task Main(string[] args)
+        try
         {
-            try
-            {
-                BuildServices();
+            var host = Host
+                .CreateDefaultBuilder(args)
+                .UseWindowsService()
+                .UseSystemd()
+                .ConfigureServices(RegisterServices)
+                .Build();
 
-                await Init();
+            await host.StartAsync();
 
-                _ = Task.Run(Services.GetRequiredService<AgentSocket>().HandleConnection);
+            await Init(host.Services);
 
-                await Task.Delay(-1);
-
-            }
-            catch (Exception ex)
-            {
-                Logger.Write(ex);
-                throw;
-            }
+            await host.WaitForShutdownAsync();
         }
-
-        private static void BuildServices()
+        catch (Exception ex)
         {
-            var serviceCollection = new ServiceCollection();
-            serviceCollection.AddHttpClient();
-            serviceCollection.AddLogging(builder =>
-            {
-                builder.AddConsole().AddDebug();
-            });
-            serviceCollection.AddSingleton<AgentSocket>();
-            serviceCollection.AddScoped<ChatClientService>();
-            serviceCollection.AddTransient<PSCore>();
-            serviceCollection.AddTransient<ExternalScriptingShell>();
-            serviceCollection.AddScoped<ConfigService>();
-            serviceCollection.AddScoped<Uninstaller>();
-            serviceCollection.AddScoped<ScriptExecutor>();
-            serviceCollection.AddScoped<IProcessInvoker, ProcessInvoker>();
-            serviceCollection.AddScoped<IUpdateDownloader, UpdateDownloader>();
+            var version = AppVersionHelper.GetAppVersion();
+            var componentName = Assembly.GetExecutingAssembly().GetName().Name;
+            var logger = new FileLogger($"{componentName}", version, "Main");
+            logger.LogError(ex, "Error during agent startup.");
+            throw;
+        }
+    }
 
-            if (EnvironmentHelper.IsWindows)
+    private static async Task Init(IServiceProvider services)
+    {
+        var logger = services.GetRequiredService<ILogger<IHost>>();
+
+        AppDomain.CurrentDomain.UnhandledException += (sender, ex) =>
+        {
+            if (ex.ExceptionObject is Exception exception)
             {
-                serviceCollection.AddScoped<IAppLauncher, AppLauncherWin>();
-                serviceCollection.AddSingleton<IUpdater, UpdaterWin>();
-                serviceCollection.AddSingleton<IDeviceInformationService, DeviceInformationServiceWin>();
-            }
-            else if (EnvironmentHelper.IsLinux)
-            {
-                serviceCollection.AddScoped<IAppLauncher, AppLauncherLinux>();
-                serviceCollection.AddSingleton<IUpdater, UpdaterLinux>();
-                serviceCollection.AddSingleton<IDeviceInformationService, DeviceInformationServiceLinux>();
-            }
-            else if (EnvironmentHelper.IsMac)
-            {
-                serviceCollection.AddScoped<IAppLauncher, AppLauncherMac>();
-                serviceCollection.AddSingleton<IUpdater, UpdaterMac>();
-                serviceCollection.AddSingleton<IDeviceInformationService, DeviceInformationServiceMac>();
+                logger.LogError(exception, "Unhandled exception in AppDomain.");
             }
             else
             {
-                throw new NotSupportedException("Operating system not supported.");
+                logger.LogError("Unhandled exception in AppDomain.");
             }
+        };
 
-            Services = serviceCollection.BuildServiceProvider();
+        SetWorkingDirectory();
+
+        if (OperatingSystem.IsWindows())
+        {
+            SetSas(services, logger);
         }
 
-        private static void CurrentDomain_UnhandledException(object sender, UnhandledExceptionEventArgs e)
-        {
-            Logger.Write(e.ExceptionObject as Exception);
-        }
+        // TODO: Move this to a BackgroundService.
+        await services.GetRequiredService<IUpdater>().BeginChecking();
+        await services.GetRequiredService<IAgentHubConnection>().Connect();
+    }
 
-        private static async Task Init()
+    private static void RegisterServices(IServiceCollection services)
+    {
+        services.AddHttpClient();
+        services.AddLogging(builder =>
         {
-            try
+            builder.AddConsole().AddDebug();
+            var version = AppVersionHelper.GetAppVersion();
+            var componentName = Assembly.GetExecutingAssembly().GetName().Name;
+            builder.AddProvider(new FileLoggerProvider($"{componentName}", version));
+        });
+
+        services.AddSingleton<IAgentHubConnection, AgentHubConnection>();
+        services.AddSingleton<ICpuUtilizationSampler, CpuUtilizationSampler>();
+        services.AddSingleton<IWakeOnLanService, WakeOnLanService>();
+        services.AddHostedService(services => services.GetRequiredService<ICpuUtilizationSampler>());
+        services.AddSingleton<IChatClientService, ChatClientService>();
+        services.AddTransient<IPsCoreShell, PsCoreShell>();
+        services.AddTransient<IExternalScriptingShell, ExternalScriptingShell>();
+        services.AddSingleton<IConfigService, ConfigService>();
+        services.AddSingleton<IUninstaller, Uninstaller>();
+        services.AddSingleton<IScriptExecutor, ScriptExecutor>();
+        services.AddSingleton<IProcessInvoker, ProcessInvoker>();
+        services.AddSingleton<IUpdateDownloader, UpdateDownloader>();
+        services.AddSingleton<IFileLogsManager, FileLogsManager>();
+        services.AddSingleton<IScriptingShellFactory, ScriptingShellFactory>();
+
+        if (OperatingSystem.IsWindows())
+        {
+            services.AddSingleton<IAppLauncher, AppLauncherWin>();
+            services.AddSingleton<IUpdater, UpdaterWin>();
+            services.AddSingleton<IDeviceInformationService, DeviceInfoGeneratorWin>();
+            services.AddSingleton<IElevationDetector, ElevationDetectorWin>();
+        }
+        else if (OperatingSystem.IsLinux())
+        {
+            services.AddSingleton<IAppLauncher, AppLauncherLinux>();
+            services.AddSingleton<IUpdater, UpdaterLinux>();
+            services.AddSingleton<IDeviceInformationService, DeviceInfoGeneratorLinux>();
+            services.AddSingleton<IElevationDetector, ElevationDetectorLinux>();
+        }
+        else if (OperatingSystem.IsMacOS())
+        {
+            services.AddSingleton<IAppLauncher, AppLauncherMac>();
+            services.AddSingleton<IUpdater, UpdaterMac>();
+            services.AddSingleton<IDeviceInformationService, DeviceInfoGeneratorMac>();
+            services.AddSingleton<IElevationDetector, ElevationDetectorMac>();
+        }
+        else
+        {
+            throw new NotSupportedException("Operating system not supported.");
+        }
+    }
+
+    [SupportedOSPlatform("windows")]
+    private static void SetSas(IServiceProvider services, ILogger<IHost> logger)
+    {
+        try
+        {
+            var elevationDetector = services.GetRequiredService<IElevationDetector>();
+            if (elevationDetector.IsElevated())
             {
-                AppDomain.CurrentDomain.UnhandledException += CurrentDomain_UnhandledException;
-
-                SetWorkingDirectory();
-
-
-                if (EnvironmentHelper.IsWindows &&
-                    Process.GetCurrentProcess().SessionId == 0)
-                {
-                    _ = Task.Run(() =>
-                    {
-                        try
-                        {
-                            ServiceBase.Run(new WindowsService());
-                        }
-                        catch (Exception ex)
-                        {
-                            Logger.Write(ex, "Failed to start service.", EventType.Warning);
-                        }
-                    });
-                }
-
-                await Services.GetRequiredService<IUpdater>().BeginChecking();
-
-                await Services.GetRequiredService<AgentSocket>().Connect();
-            }
-            catch (Exception ex)
-            {
-                Logger.Write(ex);
+                // Set Secure Attention Sequence policy to allow app to simulate Ctrl + Alt + Del.
+                var subkey = Registry.LocalMachine.OpenSubKey(@"SOFTWARE\Microsoft\Windows\CurrentVersion\Policies\System", true);
+                subkey?.SetValue("SoftwareSASGeneration", "3", RegistryValueKind.DWord);
             }
         }
-
-        private static void SetWorkingDirectory()
+        catch (Exception ex)
         {
-            var assemblyPath = System.Reflection.Assembly.GetExecutingAssembly().Location;
-            var assemblyDir = Path.GetDirectoryName(assemblyPath);
-            Directory.SetCurrentDirectory(assemblyDir);
+            logger.LogError(ex, "Error while setting Secure Attention Sequence in the registry.");
         }
+    }
+
+    private static void SetWorkingDirectory()
+    {
+        var exePath = Environment.ProcessPath ?? Environment.GetCommandLineArgs().First();
+        var exeDir = Path.GetDirectoryName(exePath) ?? AppDomain.CurrentDomain.BaseDirectory;
+        Directory.SetCurrentDirectory(exeDir);
     }
 }

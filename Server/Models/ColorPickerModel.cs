@@ -1,20 +1,15 @@
-﻿using System;
-using System.Collections.Generic;
-using System.ComponentModel;
-using System.Linq;
-using System.Threading.Tasks;
+﻿using System.ComponentModel;
 
-namespace Remotely.Server.Models
+namespace Remotely.Server.Models;
+
+public class ColorPickerModel
 {
-    public class ColorPickerModel
-    {
-        [DisplayName("Red")]
-        public byte Red { get; set; }
+    [DisplayName("Red")]
+    public byte Red { get; set; }
 
-        [DisplayName("Green")]
-        public byte Green { get; set; }
+    [DisplayName("Green")]
+    public byte Green { get; set; }
 
-        [DisplayName("Blue")]
-        public byte Blue { get; set; }
-    }
+    [DisplayName("Blue")]
+    public byte Blue { get; set; }
 }

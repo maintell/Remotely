@@ -1,38 +1,43 @@
-using System;
 using System.Diagnostics;
-using Remotely.Shared.Utilities;
+using Microsoft.Extensions.Logging;
 
-namespace Remotely.Shared.Services
+namespace Remotely.Shared.Services;
+
+public interface IProcessInvoker
 {
-    public interface IProcessInvoker
+    string InvokeProcessOutput(string command, string arguments);
+}
+
+public class ProcessInvoker : IProcessInvoker
+{
+    private readonly ILogger<ProcessInvoker> _logger;
+
+    public ProcessInvoker(ILogger<ProcessInvoker> logger)
     {
-        string InvokeProcessOutput(string command, string arguments);
+        _logger = logger;
     }
 
-    public class ProcessInvoker : IProcessInvoker
+    public string InvokeProcessOutput(string command, string arguments)
     {
-        public string InvokeProcessOutput(string command, string arguments)
+        try
         {
-            try
+            var psi = new ProcessStartInfo(command, arguments)
             {
-                var psi = new ProcessStartInfo(command, arguments)
-                {
-                    WindowStyle = ProcessWindowStyle.Hidden,
-                    Verb = "RunAs",
-                    UseShellExecute = false,
-                    RedirectStandardOutput = true
-                };
+                WindowStyle = ProcessWindowStyle.Hidden,
+                Verb = "RunAs",
+                UseShellExecute = false,
+                RedirectStandardOutput = true
+            };
 
-                var proc = Process.Start(psi);
-                proc.WaitForExit();
+            var proc = Process.Start(psi);
+            proc?.WaitForExit();
 
-                return proc.StandardOutput.ReadToEnd();
-            }
-            catch (Exception ex)
-            {
-                Logger.Write(ex, "Failed to start process.");
-                return string.Empty;
-            }
+            return proc?.StandardOutput.ReadToEnd() ?? string.Empty;
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Failed to start process.");
+            return string.Empty;
         }
     }
 }

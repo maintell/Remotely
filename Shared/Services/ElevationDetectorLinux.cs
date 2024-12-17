@@ -1,20 +1,14 @@
-﻿using System;
-using System.Collections.Generic;
-using System.Linq;
-using System.Runtime.InteropServices;
-using System.Text;
-using System.Threading.Tasks;
+﻿using System.Runtime.InteropServices;
 
-namespace Remotely.Shared.Services
+namespace Remotely.Shared.Services;
+
+public class ElevationDetectorLinux : IElevationDetector
 {
-    public class ElevationDetectorLinux : IElevationDetector
-    {
-        [DllImport("libc", SetLastError = true)]
-        private static extern uint geteuid();
+    [DllImport("libc", SetLastError = true)]
+    private static extern uint geteuid();
 
-        public bool IsElevated()
-        {
-            return geteuid() == 0;
-        }
+    public bool IsElevated()
+    {
+        return geteuid() == 0;
     }
 }
