@@ -1,92 +1,136 @@
-﻿using Microsoft.AspNetCore.Http.Extensions;
+﻿using Remotely.Shared.Extensions;
+using Microsoft.AspNetCore.Http.Extensions;
 using Microsoft.AspNetCore.Mvc;
 using Remotely.Server.Auth;
+using Remotely.Server.Extensions;
 using Remotely.Server.Services;
+using Remotely.Shared.Entities;
 using Remotely.Shared.Models;
-using System.Collections.Generic;
-using System.Threading.Tasks;
 
-// For more information on enabling Web API for empty projects, visit https://go.microsoft.com/fwlink/?LinkID=397860
+namespace Remotely.Server.API;
 
-namespace Remotely.Server.API
+[ApiController]
+[Route("api/[controller]")]
+public class DevicesController : ControllerBase
 {
-    [ApiController]
-    [Route("api/[controller]")]
-    public class DevicesController : ControllerBase
+    private readonly IDataService _dataService;
+    private readonly ILogger<DevicesController> _logger;
+
+    public DevicesController(
+        IDataService dataService,
+        ILogger<DevicesController> logger)
     {
+        _dataService = dataService;
+        _logger = logger;
+    }
 
-        public DevicesController(IDataService dataService)
+
+    [HttpGet]
+    [ServiceFilter(typeof(ApiAuthorizationFilter))]
+    public IEnumerable<Device> Get()
+    {
+        if (!Request.Headers.TryGetOrganizationId(out var orgId))
         {
-            DataService = dataService;
-        }
-        private IDataService DataService { get; set; }
-
-
-        [HttpGet]
-        [ServiceFilter(typeof(ApiAuthorizationFilter))]
-        public IEnumerable<Device> Get()
-        {
-            Request.Headers.TryGetValue("OrganizationID", out var orgID);
-
-            if (User.Identity.IsAuthenticated)
-            {
-                return DataService.GetDevicesForUser(User.Identity.Name);
-            }
-
-            return DataService.GetAllDevices(orgID);
+            return Array.Empty<Device>();
         }
 
-        [ServiceFilter(typeof(ApiAuthorizationFilter))]
-        [HttpGet("{id}")]
-        public Device Get(string id)
+        if (User.Identity?.IsAuthenticated == true)
         {
-            Request.Headers.TryGetValue("OrganizationID", out var orgID);
-
-            var device = DataService.GetDevice(orgID, id);
-
-            if (User.Identity.IsAuthenticated &&
-                !DataService.DoesUserHaveAccessToDevice(id, DataService.GetUserByNameWithOrg(User.Identity.Name)))
-            {
-                return null;
-            }
-            return device;
+            return _dataService.GetDevicesForUser($"{User.Identity.Name}");
         }
 
-        [HttpPut]
-        [ServiceFilter(typeof(ApiAuthorizationFilter))]
-        public async Task<IActionResult> Update(
-            [FromBody] DeviceSetupOptions deviceOptions,
-            [FromHeader] string organizationId)
-        {
-            if (deviceOptions == null ||
-                string.IsNullOrWhiteSpace(organizationId))
-            {
-                return BadRequest("DeviceOptions and OrganizationId are required.");
-            }
+        // Authorized with API key.  Return all.
+        return _dataService.GetAllDevices(orgId);
+    }
 
-            if (User.Identity.IsAuthenticated &&
-                !DataService.DoesUserHaveAccessToDevice(deviceOptions.DeviceID, DataService.GetUserByNameWithOrg(User.Identity.Name)))
+    [ServiceFilter(typeof(ApiAuthorizationFilter))]
+    [HttpGet("{id}")]
+    public async Task<ActionResult<Device>> Get(string id)
+    {
+        if (!Request.Headers.TryGetOrganizationId(out var orgId))
+        {
+            return Unauthorized();
+        }
+
+        if (User.Identity?.IsAuthenticated == true)
+        {
+            var userResult = await _dataService.GetUserByName($"{User.Identity.Name}");
+            _logger.LogResult(userResult);
+
+            if (!userResult.IsSuccess)
             {
                 return Unauthorized();
             }
 
-            var device = await DataService.UpdateDevice(deviceOptions, organizationId);
-            if (device == null)
+            if (!_dataService.DoesUserHaveAccessToDevice(id, userResult.Value))
             {
-                return BadRequest();
+                return Unauthorized();
             }
-            return Created(Request.GetDisplayUrl(), device);
         }
 
-        [HttpPost]
-        public async Task<IActionResult> Create([FromBody] DeviceSetupOptions deviceOptions)
+        var deviceResult = await _dataService.GetDevice(orgId, id);
+        _logger.LogResult(deviceResult);
+
+        if (!deviceResult.IsSuccess)
         {
-            var device = await DataService.CreateDevice(deviceOptions);
-            if (device is null)
-            {
-                return BadRequest("Device already exists.  Use Put with authorization to update the device.");
-            }
-            return Created(Request.GetDisplayUrl(), device);
+            return NotFound();
         }
+
+        return deviceResult.Value;
+    }
+
+    [HttpPut]
+    [ServiceFilter(typeof(ApiAuthorizationFilter))]
+    public async Task<IActionResult> Update([FromBody] DeviceSetupOptions deviceOptions)
+    {
+        if (!Request.Headers.TryGetOrganizationId(out var orgId))
+        {
+            return Unauthorized();
+        }
+        
+        if (string.IsNullOrWhiteSpace(deviceOptions?.DeviceID))
+        {
+            return BadRequest("DeviceId is required.");
+        }
+
+
+        if (User.Identity?.IsAuthenticated == true)
+        {
+            var userResult = await _dataService.GetUserByName($"{User.Identity.Name}");
+            _logger.LogResult(userResult);
+
+            if (!userResult.IsSuccess)
+            {
+                return Unauthorized();
+            }
+
+            if (!_dataService.DoesUserHaveAccessToDevice(deviceOptions.DeviceID, userResult.Value))
+            {
+                return Unauthorized();
+            }
+
+        }
+
+        var deviceResult = await _dataService.UpdateDevice(deviceOptions, orgId);
+        _logger.LogResult(deviceResult);
+
+        if (!deviceResult.IsSuccess)
+        {
+            return BadRequest();
+        }
+        return Created(Request.GetDisplayUrl(), deviceResult.Value);
+    }
+
+    [HttpPost]
+    public async Task<IActionResult> Create([FromBody] DeviceSetupOptions deviceOptions)
+    {
+        var result = await _dataService.CreateDevice(deviceOptions);
+        _logger.LogResult(result);
+
+        if (!result.IsSuccess)
+        {
+            return BadRequest("Device already exists.  Use Put with authorization to update the device.");
+        }
+        return Created(Request.GetDisplayUrl(), result.Value);
     }
 }

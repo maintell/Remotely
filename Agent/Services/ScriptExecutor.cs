@@ -1,175 +1,221 @@
 ﻿using Microsoft.AspNetCore.SignalR.Client;
+using Microsoft.Extensions.Logging;
+using Remotely.Shared;
+using Remotely.Shared.Dtos;
+using Remotely.Shared.Entities;
 using Remotely.Shared.Enums;
-using Remotely.Shared.Models;
 using Remotely.Shared.Utilities;
 using System;
-using System.IO;
-using System.Linq;
-using System.Net;
 using System.Net.Http;
 using System.Net.Http.Json;
 using System.Text.Json;
 using System.Threading.Tasks;
 
-namespace Remotely.Agent.Services
+namespace Remotely.Agent.Services;
+
+public interface IScriptExecutor
 {
-    public class ScriptExecutor
+    Task RunCommandFromApi(ScriptingShell shell, string requestID, string command, string senderUsername, string authToken, HubConnection hubConnection);
+    Task RunCommandFromTerminal(ScriptingShell shell, string command, string authToken, string senderUsername, string senderConnectionID, ScriptInputType scriptInputType, TimeSpan timeout, HubConnection hubConnection);
+    Task RunScript(Guid savedScriptId, int scriptRunId, string initiator, ScriptInputType scriptInputType, string authToken);
+}
+
+public class ScriptExecutor : IScriptExecutor
+{
+    private readonly IConfigService _configService;
+    private readonly IScriptingShellFactory _scriptingShellFactory;
+    private readonly ILogger<ScriptExecutor> _logger;
+
+    public ScriptExecutor(
+        IConfigService configService, 
+        IScriptingShellFactory scriptingShellFactory,
+        ILogger<ScriptExecutor> logger)
     {
-        public ScriptExecutor(ConfigService configService)
+        _configService = configService;
+        _scriptingShellFactory = scriptingShellFactory;
+        _logger = logger;
+    }
+
+
+    public async Task RunCommandFromApi(ScriptingShell shell,
+        string requestID,
+        string command,
+        string senderUsername,
+        string authToken,
+        HubConnection hubConnection)
+    {
+        try
         {
-            ConfigService = configService;
+
+            var result = await ExecuteScriptContent(shell, requestID, command, TimeSpan.FromMinutes(AppConstants.ScriptRunExpirationMinutes));
+
+            result.InputType = ScriptInputType.Api;
+            result.SenderUserName = senderUsername;
+
+            _ = await SendResultsToApi(result, authToken);
+            await hubConnection.SendAsync("ScriptResultViaApi", requestID);
         }
-
-        private ConfigService ConfigService { get; }
-
-        public async Task RunCommandFromApi(ScriptingShell shell,
-            string requestID,
-            string command,
-            string senderUsername,
-            string authToken,
-            HubConnection hubConnection)
+        catch (Exception ex)
         {
-            try
-            {
-
-                var result = ExecuteScriptContent(shell, requestID, command, TimeSpan.FromMinutes(AppConstants.ScriptRunExpirationMinutes));
-
-                result.InputType = ScriptInputType.Api;
-                result.SenderUserName = senderUsername;
-
-                await SendResultsToApi(result, authToken);
-                await hubConnection.SendAsync("ScriptResultViaApi", requestID);
-            }
-            catch (Exception ex)
-            {
-                Logger.Write(ex);
-            }
+            _logger.LogError(ex, "Error while running command from API.");
         }
+    }
 
-        public async Task RunCommandFromTerminal(ScriptingShell shell,
-                    string command,
-                    string authToken,
-                    string senderUsername,
-                    string senderConnectionID,
-                    ScriptInputType scriptInputType,
-                    TimeSpan timeout,
-                    HubConnection hubConnection)
+    public async Task RunCommandFromTerminal(ScriptingShell shell,
+                string command,
+                string authToken,
+                string senderUsername,
+                string senderConnectionID,
+                ScriptInputType scriptInputType,
+                TimeSpan timeout,
+                HubConnection hubConnection)
+    {
+        try
         {
-            try
+            var result = await ExecuteScriptContent(shell, senderConnectionID, command, timeout);
+
+            result.InputType = scriptInputType;
+            result.SenderUserName = senderUsername;
+
+            var responseResult = await SendResultsToApi(result, authToken);
+            if (responseResult is null)
             {
-                var result = ExecuteScriptContent(shell, senderConnectionID, command, timeout);
+                return;
+            }
+            await hubConnection.SendAsync("ScriptResult", responseResult.Id);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error while running command from terminal.");
+            await hubConnection.SendAsync("DisplayMessage",
+                "There was an error executing the command. It has been logged on the client device.",
+                "Error executing command.",
+                "bg-danger",
+                senderConnectionID);
+        }
+    }
 
-                result.InputType = scriptInputType;
-                result.SenderUserName = senderUsername;
+    public async Task RunScript(Guid savedScriptId,
+                int scriptRunId,
+                string initiator,
+                ScriptInputType scriptInputType,
+                string expiringToken)
+    {
+        try
+        {
+            _logger.LogInformation(
+                "Script run started.  Script ID: {savedScriptId}. Script Run: {scriptRunId}. Initiator: {initiator}.",
+                savedScriptId,
+                scriptRunId,
+                initiator);
 
-                var responseResult = await SendResultsToApi(result, authToken);
-                if (responseResult is null)
+            var url = $"{_configService.GetConnectionInfo().Host}/API/SavedScripts/{savedScriptId}";
+            using var hc = new HttpClient();
+            hc.DefaultRequestHeaders.Add(AppConstants.ExpiringTokenHeaderName, expiringToken);
+            var response = await hc.GetAsync(url);
+            if (!response.IsSuccessStatusCode)
+            {
+                if (response.StatusCode == System.Net.HttpStatusCode.NotFound)
                 {
                     return;
                 }
-                await hubConnection.SendAsync("ScriptResult", responseResult.ID);
+                _logger.LogWarning("Failed to get saved script.  Status Code: {responseStatusCode}", response.StatusCode);
+                return;
             }
-            catch (Exception ex)
-            {
-                Logger.Write(ex);
-                await hubConnection.SendAsync("DisplayMessage",
-                    "There was an error executing the command. It has been logged on the client device.",
-                    "Error executing command.",
-                    "bg-danger",
-                    senderConnectionID);
-            }
-        }
 
-        public async Task RunScript(Guid savedScriptId,
-                    int scriptRunId,
-                    string initiator,
-                    ScriptInputType scriptInputType,
-                    string authToken)
+            var savedScript = await response.Content.ReadFromJsonAsync<SavedScript>();
+
+            if (savedScript is null)
+            {
+                _logger.LogWarning("Failed to deserialize saved script.");
+                return;
+            }
+
+            if (string.IsNullOrWhiteSpace(savedScript.Content))
+            {
+                _logger.LogWarning("Script content is empty.  Aborting script run.");
+                return;
+            }
+
+            var result = await ExecuteScriptContent(savedScript.Shell,
+                Guid.NewGuid().ToString(),
+                savedScript.Content,
+                TimeSpan.FromMinutes(AppConstants.ScriptRunExpirationMinutes));
+
+            result.SenderUserName = initiator;
+            result.ScriptRunId = scriptRunId;
+            result.InputType = scriptInputType;
+            result.SavedScriptId = savedScriptId;
+
+            _ = await SendResultsToApi(result, expiringToken);
+        }
+        catch (Exception ex)
         {
-            try
-            {
-                Logger.Write($"Script run started.  Script ID: {savedScriptId}. Script Run: {scriptRunId}. Initiator: {initiator}.");
-
-                var connectionInfo = ConfigService.GetConnectionInfo();
-                var url = $"{connectionInfo.Host}/API/SavedScripts/{savedScriptId}";
-                using var hc = new HttpClient();
-                hc.DefaultRequestHeaders.Add("Authorization", authToken);
-                var savedScript = await hc.GetFromJsonAsync<SavedScript>(url);
-
-                var result = ExecuteScriptContent(savedScript.Shell,
-                    Guid.NewGuid().ToString(),
-                    savedScript.Content,
-                    TimeSpan.FromMinutes(AppConstants.ScriptRunExpirationMinutes));
-
-                result.SenderUserName = initiator;
-                result.ScriptRunId = scriptRunId;
-                result.InputType = scriptInputType;
-                result.SavedScriptId = savedScriptId;
-
-                var responseResult = await SendResultsToApi(result, authToken);
-            }
-            catch (Exception ex)
-            {
-                Logger.Write(ex);
-            }
+            _logger.LogError(ex, "Error while running script.");
         }
+    }
 
-        // TODO: Async/await.
-        private ScriptResult ExecuteScriptContent(ScriptingShell shell,
-            string terminalSessionId,
-            string command,
-            TimeSpan timeout)
+    private async Task<ScriptResultDto> ExecuteScriptContent(
+        ScriptingShell shell,
+        string terminalSessionId,
+        string command,
+        TimeSpan timeout)
+    {
+        switch (shell)
         {
-            switch (shell)
-            {
-                case ScriptingShell.PSCore:
-                    return PSCore.GetCurrent(terminalSessionId).WriteInput(command);
+            case ScriptingShell.PSCore:
+                return await _scriptingShellFactory
+                    .GetOrCreatePsCoreShell(terminalSessionId)
+                    .WriteInput(command);
 
-                case ScriptingShell.WinPS:
-                    if (EnvironmentHelper.IsWindows)
-                    {
-                        return ExternalScriptingShell
-                          .GetCurrent(ScriptingShell.WinPS, terminalSessionId)
-                          .WriteInput(command, timeout);
+            case ScriptingShell.WinPS:
+                if (EnvironmentHelper.IsWindows)
+                {
+                    var instance = await _scriptingShellFactory
+                      .GetOrCreateExternalShell(ScriptingShell.WinPS, terminalSessionId);
 
-                    }
-                    break;
+                    return await instance.WriteInput(command, timeout);
+                }
+                break;
 
-                case ScriptingShell.CMD:
-                    if (EnvironmentHelper.IsWindows)
-                    {
-                        return ExternalScriptingShell
-                             .GetCurrent(ScriptingShell.CMD, terminalSessionId)
-                             .WriteInput(command, timeout);
-                    }
-                    break;
+            case ScriptingShell.CMD:
+                if (EnvironmentHelper.IsWindows)
+                {
+                    var instance = await _scriptingShellFactory
+                         .GetOrCreateExternalShell(ScriptingShell.CMD, terminalSessionId);
 
-                case ScriptingShell.Bash:
-                    return ExternalScriptingShell
-                        .GetCurrent(ScriptingShell.Bash, terminalSessionId)
-                        .WriteInput(command, timeout);
-                default:
-                    break;
-            }
-            return null;
+                    return await instance.WriteInput(command, timeout);
+                }
+                break;
+
+            case ScriptingShell.Bash:
+                {
+                    var instance = await _scriptingShellFactory
+                        .GetOrCreateExternalShell(ScriptingShell.Bash, terminalSessionId);
+
+                    return await instance.WriteInput(command, timeout);
+                }
+            default:
+                break;
         }
-        private async Task<ScriptResult> SendResultsToApi(object result, string authToken)
+        throw new InvalidOperationException($"Unknown shell type: {shell}");
+    }
+    private async Task<ScriptResultResponse?> SendResultsToApi(ScriptResultDto result, string expiringToken)
+    {
+        var targetURL = _configService.GetConnectionInfo().Host + $"/API/ScriptResults";
+
+        using var httpClient = new HttpClient();
+        httpClient.DefaultRequestHeaders.Add(AppConstants.ExpiringTokenHeaderName, expiringToken);
+
+        using var response = await httpClient.PostAsJsonAsync(targetURL, result);
+
+        if (!response.IsSuccessStatusCode)
         {
-            var targetURL = ConfigService.GetConnectionInfo().Host + $"/API/ScriptResults";
-
-            using var httpClient = new HttpClient();
-            httpClient.DefaultRequestHeaders.Add("Authorization", authToken);
-
-            using var response = await httpClient.PostAsJsonAsync(targetURL, result);
-
-            if (!response.IsSuccessStatusCode)
-            {
-                Logger.Write($"Failed to send script results.  Status Code: {response.StatusCode}");
-                return default;
-            }
-
-            var content = await response.Content.ReadAsStringAsync();
-            return JsonSerializer.Deserialize<ScriptResult>(content, JsonSerializerHelper.CaseInsensitiveOptions);
+            _logger.LogError("Failed to send script results.  Status Code: {responseStatusCode}", response.StatusCode);
+            return default;
         }
+
+        var content = await response.Content.ReadAsStringAsync();
+        return JsonSerializer.Deserialize<ScriptResultResponse>(content, JsonSerializerHelper.CaseInsensitiveOptions);
     }
 }

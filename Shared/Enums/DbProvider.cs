@@ -1,16 +1,9 @@
-﻿using System;
-using System.Collections.Generic;
-using System.Linq;
-using System.Text;
-using System.Threading.Tasks;
+﻿namespace Remotely.Shared.Enums;
 
-namespace Remotely.Shared.Enums
+
+public enum DbProvider
 {
-
-    public enum DbProvider
-    {
-        PostgreSQL,
-        SQLite,
-        SQLServer
-    }
+    PostgreSQL,
+    SQLite,
+    SQLServer
 }

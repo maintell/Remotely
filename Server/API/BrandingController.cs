@@ -1,41 +1,58 @@
-﻿using Microsoft.AspNetCore.Http;
+﻿using Remotely.Shared.Extensions;
 using Microsoft.AspNetCore.Mvc;
 using Remotely.Server.Services;
-using Remotely.Shared.Models;
-using System;
-using System.Collections.Generic;
-using System.Linq;
-using System.Threading.Tasks;
+using Remotely.Shared.Entities;
 
-namespace Remotely.Server.API
+namespace Remotely.Server.API;
+
+[Route("api/[controller]")]
+[ApiController]
+public class BrandingController : ControllerBase
 {
-    [Route("api/[controller]")]
-    [ApiController]
-    public class BrandingController : ControllerBase
+    private readonly IDataService _dataService;
+    private readonly ILogger<BrandingController> _logger;
+
+    public BrandingController(
+        IDataService dataService,
+        ILogger<BrandingController> logger)
     {
-        private readonly IDataService _dataService;
+        _dataService = dataService;
+        _logger = logger;
+    }
 
-        public BrandingController(IDataService dataService)
+
+    [HttpGet("{organizationId}")]
+    public async Task<ActionResult<BrandingInfo>> Get(string organizationId)
+    {
+        var result = await _dataService.GetBrandingInfo(organizationId);
+        _logger.LogResult(result);
+        if (!result.IsSuccess)
         {
-            _dataService = dataService;
+            return NotFound();
+        }
+        return result.Value;
+    }
+
+    [HttpGet]
+    public async Task<BrandingInfo> GetDefault()
+    {
+        var orgResult = await _dataService.GetDefaultOrganization();
+        _logger.LogResult(orgResult);
+
+        if (!orgResult.IsSuccess)
+        {
+            return new();
         }
 
+        var brandingResult = await _dataService.GetBrandingInfo(orgResult.Value.ID);
+        _logger.LogResult(brandingResult);
 
-        [HttpGet("{organizationId}")]
-        public async Task<BrandingInfo> Get(string organizationId)
+        if (!orgResult.IsSuccess || 
+            brandingResult.Value is null)
         {
-            return await _dataService.GetBrandingInfo(organizationId);
+            return new();
         }
 
-        [HttpGet]
-        public async Task<BrandingInfo> GetDefault()
-        {
-            var defaultOrg = await _dataService.GetDefaultOrganization();
-            if (defaultOrg is null)
-            {
-                return new BrandingInfo();
-            }
-            return await _dataService.GetBrandingInfo(defaultOrg.ID);
-        }
+        return brandingResult.Value;
     }
 }

@@ -1,37 +1,45 @@
 ﻿using Microsoft.AspNetCore.Authorization;
-using Microsoft.AspNetCore.Identity;
+using Remotely.Server.Models;
 using Remotely.Server.Services;
-using Remotely.Shared.Models;
-using System;
-using System.Collections.Generic;
-using System.Linq;
-using System.Threading.Tasks;
+using System.Security.Principal;
 
-namespace Remotely.Server.Auth
+namespace Remotely.Server.Auth;
+
+public class TwoFactorRequiredHandler(
+    IHttpContextAccessor _contextAccessor,
+    IDataService _dataService) : AuthorizationHandler<TwoFactorRequiredRequirement>
 {
-    public class TwoFactorRequiredHandler : AuthorizationHandler<TwoFactorRequiredRequirement>
+    protected override async Task HandleRequirementAsync(AuthorizationHandlerContext context, TwoFactorRequiredRequirement requirement)
     {
-        private readonly UserManager<RemotelyUser> _userManager;
-        private readonly IApplicationConfig _appConfig;
-
-        public TwoFactorRequiredHandler(UserManager<RemotelyUser> userManager, IApplicationConfig appConfig)
+        var settings = await _dataService.GetSettings();
+        if (context.User?.Identity is { } identity &&
+            IsTwoFactorRequired(identity, settings))
         {
-            _userManager = userManager;
-            _appConfig = appConfig;
-        }
+            var userResult = await _dataService.GetUserByName(identity.Name!);
 
-        protected override async Task HandleRequirementAsync(AuthorizationHandlerContext context, TwoFactorRequiredRequirement requirement)
-        {
-            if (context.User.Identity.IsAuthenticated && _appConfig.Require2FA)
+            if (!userResult.IsSuccess ||
+                !userResult.Value.TwoFactorEnabled)
             {
-                var user = await _userManager.GetUserAsync(context.User);
-                if (!user.TwoFactorEnabled)
-                {
-                    context.Fail();
-                    return;
-                }
+                context.Fail();
+                return;
             }
-            context.Succeed(requirement);
         }
+        context.Succeed(requirement);
+    }
+
+    private bool IsTwoFactorRequired(IIdentity identity, SettingsModel settings)
+    {
+        // Account management pages are exempt since they're required
+        // to set up 2FA.
+        var path = _contextAccessor.HttpContext?.Request.Path ?? "";
+        if (path.StartsWithSegments("/Account/Manage"))
+        {
+            return false;
+        }
+
+        return 
+            settings.Require2FA &&
+            identity.IsAuthenticated &&
+            identity.Name is not null;
     }
 }

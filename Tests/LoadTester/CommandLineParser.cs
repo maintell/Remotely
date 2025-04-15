@@ -1,43 +1,50 @@
 ﻿using System;
+using System.Linq;
 using System.Collections.Generic;
 
-namespace Remotely.Tests.LoadTester
+namespace Remotely.LoadTester;
+
+public class CommandLineParser
 {
-    public class CommandLineParser
+    private static Dictionary<string, string>? _commandLineArgs;
+
+    public static Dictionary<string, string> CommandLineArgs
     {
-        private static Dictionary<string, string> commandLineArgs;
-        public static Dictionary<string, string> CommandLineArgs
+        get
         {
-            get
+            if (_commandLineArgs is null)
             {
-                if (commandLineArgs is null)
+                _commandLineArgs = new Dictionary<string, string>();
+
+                var args = Environment.GetCommandLineArgs();
+                if (args?.Any() != true)
                 {
-                    commandLineArgs = new Dictionary<string, string>();
-                    var args = Environment.GetCommandLineArgs();
-                    for (var i = 1; i < args.Length; i += 2)
-                    {
-                        try
-                        {
-                            var key = args?[i];
-                            if (key != null)
-                            {
-                                if (!key.Contains("-"))
-                                {
-                                    i -= 1;
-                                    continue;
-                                }
-
-                                key = key.Trim().Replace("-", "").ToLower();
-
-                                commandLineArgs.Add(key, args[i + 1]);
-                            }
-                        }
-                        catch { }
-
-                    }
+                    return _commandLineArgs;
                 }
-                return commandLineArgs;
+
+                for (var i = 1; i < args.Length; i += 2)
+                {
+                    try
+                    {
+                        var key = args[i];
+                        if (key != null)
+                        {
+                            if (!key.Contains("-"))
+                            {
+                                i -= 1;
+                                continue;
+                            }
+
+                            key = key.Trim().Replace("-", "").ToLower();
+
+                            _commandLineArgs.Add(key, args[i + 1]);
+                        }
+                    }
+                    catch { }
+
+                }
             }
+            return _commandLineArgs;
         }
     }
 }

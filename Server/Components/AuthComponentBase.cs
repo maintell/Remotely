@@ -1,29 +1,42 @@
 ﻿using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Components;
-using Microsoft.AspNetCore.Identity;
 using Remotely.Server.Services;
-using Remotely.Shared.Models;
-using System.Threading.Tasks;
+using Remotely.Shared.Entities;
+using System.Diagnostics.CodeAnalysis;
 
-namespace Remotely.Server.Components
+namespace Remotely.Server.Components;
+
+[Authorize]
+public class AuthComponentBase : MessengerSubscriber
 {
-    public class AuthComponentBase : ComponentBase
+    [Inject]
+    protected IAuthService AuthService { get; set; } = null!;
+
+    protected RemotelyUser? User { get; private set; }
+
+    protected string? UserName => User?.UserName;
+
+    [MemberNotNull(nameof(User), nameof(UserName))]
+    protected void EnsureUserSet()
     {
-        protected override async Task OnInitializedAsync()
+        if (User is null)
         {
-            IsAuthenticated = await AuthService.IsAuthenticated();
-            User = await AuthService.GetUser();
-            Username = User?.UserName;
-            await base.OnInitializedAsync();
+            throw new InvalidOperationException("User has not been set.");
         }
 
-        public bool IsAuthenticated { get; private set; }
+        if (UserName is null)
+        {
+            throw new InvalidOperationException("UserName has not been set.");
+        }
+    }
 
-        public RemotelyUser User { get; private set; }
-
-        public string Username { get; private set; }
-
-        [Inject]
-        protected IAuthService AuthService { get; set; }
+    protected override async Task OnInitializedAsync()
+    {
+        var userResult = await AuthService.GetUser();
+        if (userResult.IsSuccess)
+        {
+            User = userResult.Value;
+        }
+        await base.OnInitializedAsync();
     }
 }

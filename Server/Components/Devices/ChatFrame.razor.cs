@@ -1,82 +1,67 @@
 ﻿using Microsoft.AspNetCore.Components;
-using Microsoft.AspNetCore.Components.Web;
 using Remotely.Server.Hubs;
-using Remotely.Server.Services;
+using Remotely.Server.Models.Messages;
+using Remotely.Server.Services.Stores;
 using Remotely.Shared.Enums;
 using Remotely.Shared.ViewModels;
-using System;
-using System.Collections.Generic;
-using System.Linq;
-using System.Threading.Tasks;
 
-namespace Remotely.Server.Components.Devices
+namespace Remotely.Server.Components.Devices;
+
+public partial class ChatFrame : AuthComponentBase
 {
-    public partial class ChatFrame : AuthComponentBase, IDisposable
+    private ICollection<ChatSession> _chatSessions = Array.Empty<ChatSession>();
+
+    [Inject]
+    private ISelectedCardsStore CardStore { get; init; } = null!;
+
+    [Inject]
+    private IChatSessionStore ChatCache { get; init; } = null!;
+
+    [Inject]
+    private ICircuitConnection CircuitConnection { get; init; } = null!;
+
+    protected override async Task OnInitializedAsync()
     {
+        _chatSessions = ChatCache.GetAllSessions();
+        await Register<ChatSessionsChangedMessage, string>(
+            CircuitConnection.ConnectionId,
+            HandleChatSessionsChanged);
+        await Register<ChatReceivedMessage, string>(
+            CircuitConnection.ConnectionId,
+            HandleChatMessageReceived);
 
-        [Inject]
-        private IClientAppState AppState { get; set; }
+        await base.OnInitializedAsync();
+    }
 
-        [Inject]
-        private ICircuitConnection CircuitConnection { get; set; }
-
-        public void Dispose()
+    private async Task HandleChatMessageReceived(object subscriber, ChatReceivedMessage message)
+    {
+        if (message.DidDisconnect ||
+            ChatCache.ContainsKey(message.DeviceId))
         {
-            AppState.PropertyChanged -= AppState_PropertyChanged;
-            CircuitConnection.MessageReceived -= CircuitConnection_MessageReceived;
-            GC.SuppressFinalize(this);
+            return;
         }
 
-        protected override async Task OnInitializedAsync()
+        var newChat = new ChatSession()
         {
-            await base.OnInitializedAsync();
-            AppState.PropertyChanged += AppState_PropertyChanged;
-            CircuitConnection.MessageReceived += CircuitConnection_MessageReceived;
-        }
+            DeviceId = message.DeviceId,
+            DeviceName = message.DeviceName,
+            IsExpanded = true
+        };
 
-        private void CircuitConnection_MessageReceived(object sender, Models.CircuitEvent e)
+        newChat.ChatHistory.Enqueue(new ChatHistoryItem()
         {
-            if (e.EventName == Models.CircuitEventName.ChatReceived)
-            {
-                var deviceId = (string)e.Params[0];
+            Message = message.MessageText,
+            Origin = ChatHistoryItemOrigin.Device
+        });
 
-                if (!AppState.DevicesFrameChatSessions.Exists(x => x.DeviceId == deviceId))
-                {
-                    var deviceName = (string)e.Params[1];
-                    var message = (string)e.Params[2];
-                    var disconnected = (bool)e.Params[3];
+        ChatCache.AddOrUpdate(message.DeviceId, newChat, (k, v) => newChat);
 
-                    if (disconnected)
-                    {
-                        return;
-                    }
+        await Messenger.Send(new ChatSessionsChangedMessage(), CircuitConnection.ConnectionId);
+    }
 
-                    var newChat = new ChatSession()
-                    {
-                        DeviceId = deviceId,
-                        DeviceName = deviceName,
-                        IsExpanded = true
-                    };
-
-                    newChat.ChatHistory.Add(new ChatHistoryItem()
-                    {
-                        Message = message,
-                        Origin = ChatHistoryItemOrigin.Device
-                    });
-
-                    AppState.DevicesFrameChatSessions.Add(newChat);
-
-                    InvokeAsync(StateHasChanged);
-                }
-            }
-        }
-
-        private void AppState_PropertyChanged(object sender, System.ComponentModel.PropertyChangedEventArgs e)
-        {
-            if (e.PropertyName == nameof(AppState.DevicesFrameChatSessions))
-            {
-                InvokeAsync(StateHasChanged);
-            }
-        }
+    private async Task HandleChatSessionsChanged(object subscriber, ChatSessionsChangedMessage message)
+    {
+        _chatSessions = ChatCache.GetAllSessions();
+        await InvokeAsync(StateHasChanged);
     }
 }

@@ -1,0 +1,132 @@
+trigger:
+- master
+
+pr:
+- master
+
+jobs:
+- job: Windows_Build
+  displayName: Windows Build
+  timeoutInMinutes: 360
+  pool:
+    vmImage: windows-latest
+
+  steps:
+  - task: InstallSSHKey@0
+    inputs:
+      knownHostsEntry: |
+        github.com ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIOMqqnkVzrm0SdG6UOoqKLsabgH5C9okWi0dh2l9GKJl
+        github.com ssh-rsa AAAAB3NzaC1yc2EAAAABIwAAAQEAq2A7hRGmdnm9tUDbO9IDSwBK6TbQa+PXYPCPy6rbTrTtw7PHkccKrpp0yVhp5HdEIcKr6pLlVDBfOLX9QUsyCOV0wzfjIJNlGEYsdlLJizHhbn2mUjvSAHQqZETYP81eFzLQNnPHt4EVVUh7VfDESU84KezmD5QlWpXLmvU31/yMf+Se8xhHTvKSCZIFImWwoG6mbUoWf9nzpIoaSjB+weqqUUmpaaasXVal72J+UX2B+2RPW3RcT0eOzQgqlJL3RKrTJvdsjE3JEAvGq3lGHSZXy28G3skua2SmVi/w4yCE6gbODqnTWlg7+wC604ydGXA8VJiS5ap43JXiUFFAaQ==
+        github.com ecdsa-sha2-nistp256 AAAAE2VjZHNhLXNoYTItbmlzdHAyNTYAAAAIbmlzdHAyNTYAAABBBEmKSENjQEezOmxkZMy7opKgwFB9nkt5YRrYMjNuG5N87uRgg6CLrbo5wAdT/y6v0mKV0U2w0WZ2YB/++Tpockg=
+      sshKeySecureFile: 'pipelines_rsa'
+
+  - checkout: self
+    submodules: recursive
+    clean: true
+    fetchTags: false
+    
+  - task: VisualStudioTestPlatformInstaller@1
+    displayName: Visual Studio Test Platform Installer
+
+  - task: PowerShell@2
+    displayName: Add CurrentVersion Variable
+    inputs:
+      targetType: inline
+      script: |
+        $VersionString = git show -s --format=%ci $(Build.SourceVersion)
+        $VersionDate = [DateTimeOffset]::Parse($VersionString)
+        $CurrentVersion = $VersionDate.ToString("yyyy.MM.dd.HHmm")
+
+        [System.Console]::WriteLine("##vso[task.setvariable variable=CurrentVersion]$CurrentVersion")
+
+        Write-Host "Setting current version to $CurrentVersion."
+
+  - task: NuGetToolInstaller@1
+    displayName: 'Use NuGet'
+
+  - task: UseDotNet@2
+    displayName: Use .NET SDK
+    inputs:
+      version: 8.x
+
+  - task: DotNetCoreCLI@2
+    displayName: dotnet restore
+    inputs:
+      command: restore
+      projects: '**/*.csproj'
+
+  - task: DotNetCoreCLI@2
+    displayName: dotnet test
+    inputs:
+      command: 'test'
+      projects: |
+        **\Server.Tests.csproj
+        **\Shared.Tests.csproj
+
+  - task: PowerShell@2
+    displayName: Create Code Signing Cert
+    env:
+      SigningCertBase64: $(CODE_SIGNING_CERT_BASE64)
+    inputs:
+      targetType: inline
+      script: |
+          if (!$env:SigningCertBase64) {
+            Write-Host "CODE_SIGNING_CERT_BASE64 variable is empty.  Skipping cert creation."
+            return
+          }
+          $CertBytes = [System.Convert]::FromBase64String($env:SigningCertBase64)
+          [System.IO.File]::WriteAllBytes("$(Build.SourcesDirectory)\Utilities\CodeSigningCert.pfx", $CertBytes)
+
+  - task: PowerShell@2
+    displayName: Publish.ps1
+    inputs:
+      filePath: Utilities/Publish.ps1
+      arguments: -CertificatePath "$(Build.SourcesDirectory)\Utilities\CodeSigningCert.pfx" -CertificatePassword  "$(SIGNING_CERT_PASSWORD)" -CurrentVersion "$(CurrentVersion)"
+      failOnStderr: true
+      workingDirectory: Utilities
+
+  # The MSBuild TypeScript task doesn't compiled the TS
+  # files without this build step before publishing.
+  - task: DotNetCoreCLI@2
+    displayName: Build Server
+    inputs:
+      command: 'build'
+      projects: '$(Build.SourcesDirectory)/Server/Server.csproj'
+      arguments: '-r linux-x64 -c Release --self-contained'
+
+  - task: DotNetCoreCLI@2
+    displayName: Publish Server (linux-x64)
+    inputs:
+      command: publish
+      publishWebProjects: false
+      projects: '$(Build.SourcesDirectory)/Server/Server.csproj'
+      arguments: /p:Version=$(CurrentVersion) /p:FileVersion=$(CurrentVersion) --configuration $(BuildConfiguration) --output $(build.artifactstagingdirectory)\linux-x64 --runtime linux-x64 --self-contained
+
+
+  - task: PowerShell@2
+    displayName: Write Version File
+    inputs:
+      targetType: inline
+      script: |
+        Write-Host "Adding Version to File: $(CurrentVersion)"
+        # This is used in the Release.
+        New-Item -ItemType File -Value "$(CurrentVersion)" -Path "$(build.artifactstagingdirectory)\Version.txt" -Force
+
+  - task: PowerShell@2
+    displayName: Copy Docker Files
+    inputs:
+      targetType: inline
+      script: |
+        Copy-Item -Path "$(Build.SourcesDirectory)\Server\Dockerfile.pipelines" -Destination "$(build.artifactstagingdirectory)\Dockerfile"
+        Copy-Item -Path "$(Build.SourcesDirectory)\docker-compose\docker-compose.yml" -Destination "$(build.artifactstagingdirectory)\docker-compose.yml"
+
+  - task: PublishBuildArtifacts@1
+    displayName: Publish Artifact
+    condition: succeededOrFailed()
+    inputs:
+      PathtoPublish: $(build.artifactstagingdirectory)
+      ArtifactName: Server
+      TargetPath: '\\my\share\$(Build.DefinitionName)\$(Build.BuildNumber)'
+
+  - task: PostBuildCleanup@3
+    displayName: Clean Agent Directories

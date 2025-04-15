@@ -1,35 +1,35 @@
-﻿using Microsoft.Extensions.Configuration;
-using Remotely.Server.Services;
-using System;
+﻿namespace Remotely.Server.Data;
 
-namespace Remotely.Server.Data
+public interface IAppDbFactory
 {
-    public interface IAppDbFactory
+    AppDb GetContext();
+}
+
+
+public class AppDbFactory : IAppDbFactory
+{
+    private readonly IConfiguration _configuration;
+    private readonly IWebHostEnvironment _hostEnv;
+
+    public AppDbFactory(
+        IConfiguration configuration,
+        IWebHostEnvironment hostEnv)
     {
-        AppDb GetContext();
+        _configuration = configuration;
+        _hostEnv = hostEnv;
     }
 
-    public class AppDbFactory : IAppDbFactory
+    public AppDb GetContext()
     {
-        private readonly IApplicationConfig _appConfig;
-        private readonly IConfiguration _configuration;
+        var dbProvider = _configuration["ApplicationOptions:DbProvider"]?.ToLower();
 
-        public AppDbFactory(IApplicationConfig appConfig, IConfiguration configuration)
+        return dbProvider switch
         {
-            _appConfig = appConfig;
-            _configuration = configuration;
-        }
-
-        public AppDb GetContext()
-        {
-            return _appConfig.DBProvider.ToLower() switch
-            {
-                "sqlite" => new SqliteDbContext(_configuration),
-                "sqlserver" => new SqlServerDbContext(_configuration),
-                "postgresql" => new PostgreSqlDbContext(_configuration),
-                "inmemory" => new TestingDbContext(),
-                _ => throw new ArgumentException("Unknown DB provider."),
-            };
-        }
+            "sqlite" => new SqliteDbContext(_configuration, _hostEnv),
+            "sqlserver" => new SqlServerDbContext(_configuration, _hostEnv),
+            "postgresql" => new PostgreSqlDbContext(_configuration, _hostEnv),
+            "inmemory" => new TestingDbContext(_hostEnv),
+            _ => throw new ArgumentException("Unknown DB provider."),
+        };
     }
 }

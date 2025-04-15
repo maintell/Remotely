@@ -5,6 +5,8 @@ using Microsoft.EntityFrameworkCore.Infrastructure;
 using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 using Remotely.Server.Data;
 
+#nullable disable
+
 namespace Remotely.Server.Migrations.Sqlite
 {
     [DbContext(typeof(SqliteDbContext))]
@@ -13,8 +15,7 @@ namespace Remotely.Server.Migrations.Sqlite
         protected override void BuildModel(ModelBuilder modelBuilder)
         {
 #pragma warning disable 612, 618
-            modelBuilder
-                .HasAnnotation("ProductVersion", "5.0.5");
+            modelBuilder.HasAnnotation("ProductVersion", "8.0.2");
 
             modelBuilder.Entity("DeviceGroupRemotelyUser", b =>
                 {
@@ -61,21 +62,6 @@ namespace Remotely.Server.Migrations.Sqlite
                     b.ToTable("DeviceScriptRun");
                 });
 
-            modelBuilder.Entity("DeviceScriptRun1", b =>
-                {
-                    b.Property<string>("DevicesCompletedID")
-                        .HasColumnType("TEXT");
-
-                    b.Property<int>("ScriptRunsCompletedId")
-                        .HasColumnType("INTEGER");
-
-                    b.HasKey("DevicesCompletedID", "ScriptRunsCompletedId");
-
-                    b.HasIndex("ScriptRunsCompletedId");
-
-                    b.ToTable("DeviceScriptRun1");
-                });
-
             modelBuilder.Entity("DeviceScriptSchedule", b =>
                 {
                     b.Property<string>("DevicesID")
@@ -114,7 +100,7 @@ namespace Remotely.Server.Migrations.Sqlite
                         .IsUnique()
                         .HasDatabaseName("RoleNameIndex");
 
-                    b.ToTable("AspNetRoles");
+                    b.ToTable("AspNetRoles", (string)null);
                 });
 
             modelBuilder.Entity("Microsoft.AspNetCore.Identity.IdentityRoleClaim<string>", b =>
@@ -137,7 +123,7 @@ namespace Remotely.Server.Migrations.Sqlite
 
                     b.HasIndex("RoleId");
 
-                    b.ToTable("AspNetRoleClaims");
+                    b.ToTable("AspNetRoleClaims", (string)null);
                 });
 
             modelBuilder.Entity("Microsoft.AspNetCore.Identity.IdentityUser", b =>
@@ -154,6 +140,7 @@ namespace Remotely.Server.Migrations.Sqlite
 
                     b.Property<string>("Discriminator")
                         .IsRequired()
+                        .HasMaxLength(13)
                         .HasColumnType("TEXT");
 
                     b.Property<string>("Email")
@@ -205,9 +192,11 @@ namespace Remotely.Server.Migrations.Sqlite
                         .IsUnique()
                         .HasDatabaseName("UserNameIndex");
 
-                    b.ToTable("RemotelyUsers");
+                    b.ToTable("RemotelyUsers", (string)null);
 
                     b.HasDiscriminator<string>("Discriminator").HasValue("IdentityUser");
+
+                    b.UseTphMappingStrategy();
                 });
 
             modelBuilder.Entity("Microsoft.AspNetCore.Identity.IdentityUserClaim<string>", b =>
@@ -230,17 +219,15 @@ namespace Remotely.Server.Migrations.Sqlite
 
                     b.HasIndex("UserId");
 
-                    b.ToTable("AspNetUserClaims");
+                    b.ToTable("AspNetUserClaims", (string)null);
                 });
 
             modelBuilder.Entity("Microsoft.AspNetCore.Identity.IdentityUserLogin<string>", b =>
                 {
                     b.Property<string>("LoginProvider")
-                        .HasMaxLength(128)
                         .HasColumnType("TEXT");
 
                     b.Property<string>("ProviderKey")
-                        .HasMaxLength(128)
                         .HasColumnType("TEXT");
 
                     b.Property<string>("ProviderDisplayName")
@@ -254,7 +241,7 @@ namespace Remotely.Server.Migrations.Sqlite
 
                     b.HasIndex("UserId");
 
-                    b.ToTable("AspNetUserLogins");
+                    b.ToTable("AspNetUserLogins", (string)null);
                 });
 
             modelBuilder.Entity("Microsoft.AspNetCore.Identity.IdentityUserRole<string>", b =>
@@ -269,7 +256,7 @@ namespace Remotely.Server.Migrations.Sqlite
 
                     b.HasIndex("RoleId");
 
-                    b.ToTable("AspNetUserRoles");
+                    b.ToTable("AspNetUserRoles", (string)null);
                 });
 
             modelBuilder.Entity("Microsoft.AspNetCore.Identity.IdentityUserToken<string>", b =>
@@ -278,11 +265,9 @@ namespace Remotely.Server.Migrations.Sqlite
                         .HasColumnType("TEXT");
 
                     b.Property<string>("LoginProvider")
-                        .HasMaxLength(128)
                         .HasColumnType("TEXT");
 
                     b.Property<string>("Name")
-                        .HasMaxLength(128)
                         .HasColumnType("TEXT");
 
                     b.Property<string>("Value")
@@ -290,10 +275,10 @@ namespace Remotely.Server.Migrations.Sqlite
 
                     b.HasKey("UserId", "LoginProvider", "Name");
 
-                    b.ToTable("AspNetUserTokens");
+                    b.ToTable("AspNetUserTokens", (string)null);
                 });
 
-            modelBuilder.Entity("Remotely.Shared.Models.Alert", b =>
+            modelBuilder.Entity("Remotely.Shared.Entities.Alert", b =>
                 {
                     b.Property<string>("ID")
                         .ValueGeneratedOnAdd()
@@ -307,15 +292,18 @@ namespace Remotely.Server.Migrations.Sqlite
                         .HasColumnType("TEXT");
 
                     b.Property<string>("DeviceID")
+                        .IsRequired()
                         .HasColumnType("TEXT");
 
                     b.Property<string>("Message")
                         .HasColumnType("TEXT");
 
                     b.Property<string>("OrganizationID")
+                        .IsRequired()
                         .HasColumnType("TEXT");
 
                     b.Property<string>("UserID")
+                        .IsRequired()
                         .HasColumnType("TEXT");
 
                     b.HasKey("ID");
@@ -329,7 +317,7 @@ namespace Remotely.Server.Migrations.Sqlite
                     b.ToTable("Alerts");
                 });
 
-            modelBuilder.Entity("Remotely.Shared.Models.ApiToken", b =>
+            modelBuilder.Entity("Remotely.Shared.Entities.ApiToken", b =>
                 {
                     b.Property<string>("ID")
                         .ValueGeneratedOnAdd()
@@ -343,6 +331,7 @@ namespace Remotely.Server.Migrations.Sqlite
                         .HasColumnType("TEXT");
 
                     b.Property<string>("OrganizationID")
+                        .IsRequired()
                         .HasColumnType("TEXT");
 
                     b.Property<string>("Secret")
@@ -355,52 +344,33 @@ namespace Remotely.Server.Migrations.Sqlite
                     b.ToTable("ApiTokens");
                 });
 
-            modelBuilder.Entity("Remotely.Shared.Models.BrandingInfo", b =>
+            modelBuilder.Entity("Remotely.Shared.Entities.BrandingInfo", b =>
                 {
                     b.Property<string>("Id")
                         .ValueGeneratedOnAdd()
                         .HasColumnType("TEXT");
 
-                    b.Property<byte>("ButtonForegroundBlue")
-                        .HasColumnType("INTEGER");
-
-                    b.Property<byte>("ButtonForegroundGreen")
-                        .HasColumnType("INTEGER");
-
-                    b.Property<byte>("ButtonForegroundRed")
-                        .HasColumnType("INTEGER");
-
                     b.Property<byte[]>("Icon")
+                        .IsRequired()
                         .HasColumnType("BLOB");
 
+                    b.Property<string>("OrganizationId")
+                        .HasColumnType("TEXT");
+
                     b.Property<string>("Product")
+                        .IsRequired()
                         .HasMaxLength(25)
                         .HasColumnType("TEXT");
 
-                    b.Property<byte>("TitleBackgroundBlue")
-                        .HasColumnType("INTEGER");
-
-                    b.Property<byte>("TitleBackgroundGreen")
-                        .HasColumnType("INTEGER");
-
-                    b.Property<byte>("TitleBackgroundRed")
-                        .HasColumnType("INTEGER");
-
-                    b.Property<byte>("TitleForegroundBlue")
-                        .HasColumnType("INTEGER");
-
-                    b.Property<byte>("TitleForegroundGreen")
-                        .HasColumnType("INTEGER");
-
-                    b.Property<byte>("TitleForegroundRed")
-                        .HasColumnType("INTEGER");
-
                     b.HasKey("Id");
 
-                    b.ToTable("BrandingInfo");
+                    b.HasIndex("OrganizationId")
+                        .IsUnique();
+
+                    b.ToTable("BrandingInfos");
                 });
 
-            modelBuilder.Entity("Remotely.Shared.Models.Device", b =>
+            modelBuilder.Entity("Remotely.Shared.Entities.Device", b =>
                 {
                     b.Property<string>("ID")
                         .HasColumnType("TEXT");
@@ -437,6 +407,10 @@ namespace Remotely.Server.Migrations.Sqlite
                         .IsRequired()
                         .HasColumnType("TEXT");
 
+                    b.Property<string>("MacAddresses")
+                        .IsRequired()
+                        .HasColumnType("TEXT");
+
                     b.Property<string>("Notes")
                         .HasMaxLength(5000)
                         .HasColumnType("TEXT");
@@ -448,6 +422,7 @@ namespace Remotely.Server.Migrations.Sqlite
                         .HasColumnType("TEXT");
 
                     b.Property<string>("OrganizationID")
+                        .IsRequired()
                         .HasColumnType("TEXT");
 
                     b.Property<string>("Platform")
@@ -478,9 +453,6 @@ namespace Remotely.Server.Migrations.Sqlite
                     b.Property<double>("UsedStorage")
                         .HasColumnType("REAL");
 
-                    b.Property<int>("WebRtcSetting")
-                        .HasColumnType("INTEGER");
-
                     b.HasKey("ID");
 
                     b.HasIndex("DeviceGroupID");
@@ -492,17 +464,19 @@ namespace Remotely.Server.Migrations.Sqlite
                     b.ToTable("Devices");
                 });
 
-            modelBuilder.Entity("Remotely.Shared.Models.DeviceGroup", b =>
+            modelBuilder.Entity("Remotely.Shared.Entities.DeviceGroup", b =>
                 {
                     b.Property<string>("ID")
                         .ValueGeneratedOnAdd()
                         .HasColumnType("TEXT");
 
                     b.Property<string>("Name")
+                        .IsRequired()
                         .HasMaxLength(200)
                         .HasColumnType("TEXT");
 
                     b.Property<string>("OrganizationID")
+                        .IsRequired()
                         .HasColumnType("TEXT");
 
                     b.HasKey("ID");
@@ -512,39 +486,7 @@ namespace Remotely.Server.Migrations.Sqlite
                     b.ToTable("DeviceGroups");
                 });
 
-            modelBuilder.Entity("Remotely.Shared.Models.EventLog", b =>
-                {
-                    b.Property<string>("ID")
-                        .ValueGeneratedOnAdd()
-                        .HasColumnType("TEXT");
-
-                    b.Property<int>("EventType")
-                        .HasColumnType("INTEGER");
-
-                    b.Property<string>("Message")
-                        .HasColumnType("TEXT");
-
-                    b.Property<string>("OrganizationID")
-                        .HasColumnType("TEXT");
-
-                    b.Property<string>("Source")
-                        .HasColumnType("TEXT");
-
-                    b.Property<string>("StackTrace")
-                        .HasColumnType("TEXT");
-
-                    b.Property<string>("TimeStamp")
-                        .IsRequired()
-                        .HasColumnType("TEXT");
-
-                    b.HasKey("ID");
-
-                    b.HasIndex("OrganizationID");
-
-                    b.ToTable("EventLogs");
-                });
-
-            modelBuilder.Entity("Remotely.Shared.Models.InviteLink", b =>
+            modelBuilder.Entity("Remotely.Shared.Entities.InviteLink", b =>
                 {
                     b.Property<string>("ID")
                         .ValueGeneratedOnAdd()
@@ -561,6 +503,7 @@ namespace Remotely.Server.Migrations.Sqlite
                         .HasColumnType("INTEGER");
 
                     b.Property<string>("OrganizationID")
+                        .IsRequired()
                         .HasColumnType("TEXT");
 
                     b.Property<string>("ResetUrl")
@@ -573,7 +516,21 @@ namespace Remotely.Server.Migrations.Sqlite
                     b.ToTable("InviteLinks");
                 });
 
-            modelBuilder.Entity("Remotely.Shared.Models.Organization", b =>
+            modelBuilder.Entity("Remotely.Shared.Entities.KeyValueRecord", b =>
+                {
+                    b.Property<Guid>("Key")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("Value")
+                        .HasColumnType("TEXT");
+
+                    b.HasKey("Key");
+
+                    b.ToTable("KeyValueRecords");
+                });
+
+            modelBuilder.Entity("Remotely.Shared.Entities.Organization", b =>
                 {
                     b.Property<string>("ID")
                         .ValueGeneratedOnAdd()
@@ -586,20 +543,16 @@ namespace Remotely.Server.Migrations.Sqlite
                         .HasColumnType("INTEGER");
 
                     b.Property<string>("OrganizationName")
+                        .IsRequired()
                         .HasMaxLength(25)
-                        .HasColumnType("TEXT");
-
-                    b.Property<string>("RelayCode")
                         .HasColumnType("TEXT");
 
                     b.HasKey("ID");
 
-                    b.HasIndex("BrandingInfoId");
-
                     b.ToTable("Organizations");
                 });
 
-            modelBuilder.Entity("Remotely.Shared.Models.SavedScript", b =>
+            modelBuilder.Entity("Remotely.Shared.Entities.SavedScript", b =>
                 {
                     b.Property<Guid>("Id")
                         .ValueGeneratedOnAdd()
@@ -610,6 +563,7 @@ namespace Remotely.Server.Migrations.Sqlite
                         .HasColumnType("TEXT");
 
                     b.Property<string>("CreatorId")
+                        .IsRequired()
                         .HasColumnType("TEXT");
 
                     b.Property<string>("FolderPath")
@@ -631,6 +585,7 @@ namespace Remotely.Server.Migrations.Sqlite
                         .HasColumnType("TEXT");
 
                     b.Property<string>("OrganizationID")
+                        .IsRequired()
                         .HasColumnType("TEXT");
 
                     b.Property<bool>("SendEmailOnError")
@@ -651,13 +606,14 @@ namespace Remotely.Server.Migrations.Sqlite
                     b.ToTable("SavedScripts");
                 });
 
-            modelBuilder.Entity("Remotely.Shared.Models.ScriptResult", b =>
+            modelBuilder.Entity("Remotely.Shared.Entities.ScriptResult", b =>
                 {
                     b.Property<string>("ID")
                         .ValueGeneratedOnAdd()
                         .HasColumnType("TEXT");
 
                     b.Property<string>("DeviceID")
+                        .IsRequired()
                         .HasColumnType("TEXT");
 
                     b.Property<string>("ErrorOutput")
@@ -670,6 +626,7 @@ namespace Remotely.Server.Migrations.Sqlite
                         .HasColumnType("INTEGER");
 
                     b.Property<string>("OrganizationID")
+                        .IsRequired()
                         .HasColumnType("TEXT");
 
                     b.Property<TimeSpan>("RunTime")
@@ -682,6 +639,7 @@ namespace Remotely.Server.Migrations.Sqlite
                         .HasColumnType("INTEGER");
 
                     b.Property<string>("ScriptInput")
+                        .IsRequired()
                         .HasColumnType("TEXT");
 
                     b.Property<int?>("ScriptRunId")
@@ -709,6 +667,8 @@ namespace Remotely.Server.Migrations.Sqlite
 
                     b.HasIndex("OrganizationID");
 
+                    b.HasIndex("SavedScriptId");
+
                     b.HasIndex("ScheduleId");
 
                     b.HasIndex("ScriptRunId");
@@ -716,7 +676,7 @@ namespace Remotely.Server.Migrations.Sqlite
                     b.ToTable("ScriptResults");
                 });
 
-            modelBuilder.Entity("Remotely.Shared.Models.ScriptRun", b =>
+            modelBuilder.Entity("Remotely.Shared.Entities.ScriptRun", b =>
                 {
                     b.Property<int>("Id")
                         .ValueGeneratedOnAdd()
@@ -729,6 +689,7 @@ namespace Remotely.Server.Migrations.Sqlite
                         .HasColumnType("INTEGER");
 
                     b.Property<string>("OrganizationID")
+                        .IsRequired()
                         .HasColumnType("TEXT");
 
                     b.Property<string>("RunAt")
@@ -744,19 +705,18 @@ namespace Remotely.Server.Migrations.Sqlite
                     b.Property<int?>("ScheduleId")
                         .HasColumnType("INTEGER");
 
-                    b.Property<int?>("ScriptScheduleId")
-                        .HasColumnType("INTEGER");
-
                     b.HasKey("Id");
 
                     b.HasIndex("OrganizationID");
 
-                    b.HasIndex("ScriptScheduleId");
+                    b.HasIndex("SavedScriptId");
+
+                    b.HasIndex("ScheduleId");
 
                     b.ToTable("ScriptRuns");
                 });
 
-            modelBuilder.Entity("Remotely.Shared.Models.ScriptSchedule", b =>
+            modelBuilder.Entity("Remotely.Shared.Entities.ScriptSchedule", b =>
                 {
                     b.Property<int>("Id")
                         .ValueGeneratedOnAdd()
@@ -767,6 +727,7 @@ namespace Remotely.Server.Migrations.Sqlite
                         .HasColumnType("TEXT");
 
                     b.Property<string>("CreatorId")
+                        .IsRequired()
                         .HasColumnType("TEXT");
 
                     b.Property<int>("Interval")
@@ -776,6 +737,7 @@ namespace Remotely.Server.Migrations.Sqlite
                         .HasColumnType("TEXT");
 
                     b.Property<string>("Name")
+                        .IsRequired()
                         .HasColumnType("TEXT");
 
                     b.Property<string>("NextRun")
@@ -783,6 +745,7 @@ namespace Remotely.Server.Migrations.Sqlite
                         .HasColumnType("TEXT");
 
                     b.Property<string>("OrganizationID")
+                        .IsRequired()
                         .HasColumnType("TEXT");
 
                     b.Property<bool>("RunOnNextConnect")
@@ -804,7 +767,7 @@ namespace Remotely.Server.Migrations.Sqlite
                     b.ToTable("ScriptSchedules");
                 });
 
-            modelBuilder.Entity("Remotely.Shared.Models.SharedFile", b =>
+            modelBuilder.Entity("Remotely.Shared.Entities.SharedFile", b =>
                 {
                     b.Property<string>("ID")
                         .ValueGeneratedOnAdd()
@@ -814,6 +777,7 @@ namespace Remotely.Server.Migrations.Sqlite
                         .HasColumnType("TEXT");
 
                     b.Property<byte[]>("FileContents")
+                        .IsRequired()
                         .HasColumnType("BLOB");
 
                     b.Property<string>("FileName")
@@ -833,7 +797,7 @@ namespace Remotely.Server.Migrations.Sqlite
                     b.ToTable("SharedFiles");
                 });
 
-            modelBuilder.Entity("Remotely.Shared.Models.RemotelyUser", b =>
+            modelBuilder.Entity("Remotely.Shared.Entities.RemotelyUser", b =>
                 {
                     b.HasBaseType("Microsoft.AspNetCore.Identity.IdentityUser");
 
@@ -844,6 +808,7 @@ namespace Remotely.Server.Migrations.Sqlite
                         .HasColumnType("INTEGER");
 
                     b.Property<string>("OrganizationID")
+                        .IsRequired()
                         .HasColumnType("TEXT");
 
                     b.Property<string>("TempPassword")
@@ -861,13 +826,13 @@ namespace Remotely.Server.Migrations.Sqlite
 
             modelBuilder.Entity("DeviceGroupRemotelyUser", b =>
                 {
-                    b.HasOne("Remotely.Shared.Models.DeviceGroup", null)
+                    b.HasOne("Remotely.Shared.Entities.DeviceGroup", null)
                         .WithMany()
                         .HasForeignKey("DeviceGroupsID")
                         .OnDelete(DeleteBehavior.Cascade)
                         .IsRequired();
 
-                    b.HasOne("Remotely.Shared.Models.RemotelyUser", null)
+                    b.HasOne("Remotely.Shared.Entities.RemotelyUser", null)
                         .WithMany()
                         .HasForeignKey("UsersId")
                         .OnDelete(DeleteBehavior.Cascade)
@@ -876,13 +841,13 @@ namespace Remotely.Server.Migrations.Sqlite
 
             modelBuilder.Entity("DeviceGroupScriptSchedule", b =>
                 {
-                    b.HasOne("Remotely.Shared.Models.DeviceGroup", null)
+                    b.HasOne("Remotely.Shared.Entities.DeviceGroup", null)
                         .WithMany()
                         .HasForeignKey("DeviceGroupsID")
                         .OnDelete(DeleteBehavior.Cascade)
                         .IsRequired();
 
-                    b.HasOne("Remotely.Shared.Models.ScriptSchedule", null)
+                    b.HasOne("Remotely.Shared.Entities.ScriptSchedule", null)
                         .WithMany()
                         .HasForeignKey("ScriptSchedulesId")
                         .OnDelete(DeleteBehavior.Cascade)
@@ -891,43 +856,28 @@ namespace Remotely.Server.Migrations.Sqlite
 
             modelBuilder.Entity("DeviceScriptRun", b =>
                 {
-                    b.HasOne("Remotely.Shared.Models.Device", null)
+                    b.HasOne("Remotely.Shared.Entities.Device", null)
                         .WithMany()
                         .HasForeignKey("DevicesID")
                         .OnDelete(DeleteBehavior.Cascade)
                         .IsRequired();
 
-                    b.HasOne("Remotely.Shared.Models.ScriptRun", null)
+                    b.HasOne("Remotely.Shared.Entities.ScriptRun", null)
                         .WithMany()
                         .HasForeignKey("ScriptRunsId")
                         .OnDelete(DeleteBehavior.Cascade)
                         .IsRequired();
                 });
 
-            modelBuilder.Entity("DeviceScriptRun1", b =>
-                {
-                    b.HasOne("Remotely.Shared.Models.Device", null)
-                        .WithMany()
-                        .HasForeignKey("DevicesCompletedID")
-                        .OnDelete(DeleteBehavior.Cascade)
-                        .IsRequired();
-
-                    b.HasOne("Remotely.Shared.Models.ScriptRun", null)
-                        .WithMany()
-                        .HasForeignKey("ScriptRunsCompletedId")
-                        .OnDelete(DeleteBehavior.Cascade)
-                        .IsRequired();
-                });
-
             modelBuilder.Entity("DeviceScriptSchedule", b =>
                 {
-                    b.HasOne("Remotely.Shared.Models.Device", null)
+                    b.HasOne("Remotely.Shared.Entities.Device", null)
                         .WithMany()
                         .HasForeignKey("DevicesID")
                         .OnDelete(DeleteBehavior.Cascade)
                         .IsRequired();
 
-                    b.HasOne("Remotely.Shared.Models.ScriptSchedule", null)
+                    b.HasOne("Remotely.Shared.Entities.ScriptSchedule", null)
                         .WithMany()
                         .HasForeignKey("ScriptSchedulesId")
                         .OnDelete(DeleteBehavior.Cascade)
@@ -985,19 +935,25 @@ namespace Remotely.Server.Migrations.Sqlite
                         .IsRequired();
                 });
 
-            modelBuilder.Entity("Remotely.Shared.Models.Alert", b =>
+            modelBuilder.Entity("Remotely.Shared.Entities.Alert", b =>
                 {
-                    b.HasOne("Remotely.Shared.Models.Device", "Device")
+                    b.HasOne("Remotely.Shared.Entities.Device", "Device")
                         .WithMany("Alerts")
-                        .HasForeignKey("DeviceID");
+                        .HasForeignKey("DeviceID")
+                        .OnDelete(DeleteBehavior.ClientCascade)
+                        .IsRequired();
 
-                    b.HasOne("Remotely.Shared.Models.Organization", "Organization")
+                    b.HasOne("Remotely.Shared.Entities.Organization", "Organization")
                         .WithMany("Alerts")
-                        .HasForeignKey("OrganizationID");
+                        .HasForeignKey("OrganizationID")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
 
-                    b.HasOne("Remotely.Shared.Models.RemotelyUser", "User")
+                    b.HasOne("Remotely.Shared.Entities.RemotelyUser", "User")
                         .WithMany("Alerts")
-                        .HasForeignKey("UserID");
+                        .HasForeignKey("UserID")
+                        .OnDelete(DeleteBehavior.ClientCascade)
+                        .IsRequired();
 
                     b.Navigation("Device");
 
@@ -1006,96 +962,107 @@ namespace Remotely.Server.Migrations.Sqlite
                     b.Navigation("User");
                 });
 
-            modelBuilder.Entity("Remotely.Shared.Models.ApiToken", b =>
+            modelBuilder.Entity("Remotely.Shared.Entities.ApiToken", b =>
                 {
-                    b.HasOne("Remotely.Shared.Models.Organization", "Organization")
+                    b.HasOne("Remotely.Shared.Entities.Organization", "Organization")
                         .WithMany("ApiTokens")
-                        .HasForeignKey("OrganizationID");
+                        .HasForeignKey("OrganizationID")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
 
                     b.Navigation("Organization");
                 });
 
-            modelBuilder.Entity("Remotely.Shared.Models.Device", b =>
+            modelBuilder.Entity("Remotely.Shared.Entities.BrandingInfo", b =>
                 {
-                    b.HasOne("Remotely.Shared.Models.DeviceGroup", "DeviceGroup")
+                    b.HasOne("Remotely.Shared.Entities.Organization", "Organization")
+                        .WithOne("BrandingInfo")
+                        .HasForeignKey("Remotely.Shared.Entities.BrandingInfo", "OrganizationId");
+
+                    b.Navigation("Organization");
+                });
+
+            modelBuilder.Entity("Remotely.Shared.Entities.Device", b =>
+                {
+                    b.HasOne("Remotely.Shared.Entities.DeviceGroup", "DeviceGroup")
                         .WithMany("Devices")
                         .HasForeignKey("DeviceGroupID");
 
-                    b.HasOne("Remotely.Shared.Models.Organization", "Organization")
+                    b.HasOne("Remotely.Shared.Entities.Organization", "Organization")
                         .WithMany("Devices")
-                        .HasForeignKey("OrganizationID");
+                        .HasForeignKey("OrganizationID")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
 
                     b.Navigation("DeviceGroup");
 
                     b.Navigation("Organization");
                 });
 
-            modelBuilder.Entity("Remotely.Shared.Models.DeviceGroup", b =>
+            modelBuilder.Entity("Remotely.Shared.Entities.DeviceGroup", b =>
                 {
-                    b.HasOne("Remotely.Shared.Models.Organization", "Organization")
+                    b.HasOne("Remotely.Shared.Entities.Organization", "Organization")
                         .WithMany("DeviceGroups")
-                        .HasForeignKey("OrganizationID");
+                        .HasForeignKey("OrganizationID")
+                        .OnDelete(DeleteBehavior.ClientCascade)
+                        .IsRequired();
 
                     b.Navigation("Organization");
                 });
 
-            modelBuilder.Entity("Remotely.Shared.Models.EventLog", b =>
+            modelBuilder.Entity("Remotely.Shared.Entities.InviteLink", b =>
                 {
-                    b.HasOne("Remotely.Shared.Models.Organization", "Organization")
-                        .WithMany("EventLogs")
-                        .HasForeignKey("OrganizationID");
-
-                    b.Navigation("Organization");
-                });
-
-            modelBuilder.Entity("Remotely.Shared.Models.InviteLink", b =>
-                {
-                    b.HasOne("Remotely.Shared.Models.Organization", "Organization")
+                    b.HasOne("Remotely.Shared.Entities.Organization", "Organization")
                         .WithMany("InviteLinks")
-                        .HasForeignKey("OrganizationID");
+                        .HasForeignKey("OrganizationID")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
 
                     b.Navigation("Organization");
                 });
 
-            modelBuilder.Entity("Remotely.Shared.Models.Organization", b =>
+            modelBuilder.Entity("Remotely.Shared.Entities.SavedScript", b =>
                 {
-                    b.HasOne("Remotely.Shared.Models.BrandingInfo", "BrandingInfo")
-                        .WithMany()
-                        .HasForeignKey("BrandingInfoId");
-
-                    b.Navigation("BrandingInfo");
-                });
-
-            modelBuilder.Entity("Remotely.Shared.Models.SavedScript", b =>
-                {
-                    b.HasOne("Remotely.Shared.Models.RemotelyUser", "Creator")
+                    b.HasOne("Remotely.Shared.Entities.RemotelyUser", "Creator")
                         .WithMany("SavedScripts")
-                        .HasForeignKey("CreatorId");
+                        .HasForeignKey("CreatorId")
+                        .OnDelete(DeleteBehavior.ClientCascade)
+                        .IsRequired();
 
-                    b.HasOne("Remotely.Shared.Models.Organization", "Organization")
+                    b.HasOne("Remotely.Shared.Entities.Organization", "Organization")
                         .WithMany("SavedScripts")
-                        .HasForeignKey("OrganizationID");
+                        .HasForeignKey("OrganizationID")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
 
                     b.Navigation("Creator");
 
                     b.Navigation("Organization");
                 });
 
-            modelBuilder.Entity("Remotely.Shared.Models.ScriptResult", b =>
+            modelBuilder.Entity("Remotely.Shared.Entities.ScriptResult", b =>
                 {
-                    b.HasOne("Remotely.Shared.Models.Device", "Device")
+                    b.HasOne("Remotely.Shared.Entities.Device", "Device")
                         .WithMany("ScriptResults")
-                        .HasForeignKey("DeviceID");
+                        .HasForeignKey("DeviceID")
+                        .OnDelete(DeleteBehavior.ClientCascade)
+                        .IsRequired();
 
-                    b.HasOne("Remotely.Shared.Models.Organization", "Organization")
+                    b.HasOne("Remotely.Shared.Entities.Organization", "Organization")
                         .WithMany("ScriptResults")
-                        .HasForeignKey("OrganizationID");
+                        .HasForeignKey("OrganizationID")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
 
-                    b.HasOne("Remotely.Shared.Models.ScriptSchedule", "Schedule")
+                    b.HasOne("Remotely.Shared.Entities.SavedScript", "SavedScript")
+                        .WithMany("ScriptResults")
+                        .HasForeignKey("SavedScriptId");
+
+                    b.HasOne("Remotely.Shared.Entities.ScriptSchedule", "Schedule")
                         .WithMany()
                         .HasForeignKey("ScheduleId");
 
-                    b.HasOne("Remotely.Shared.Models.ScriptRun", null)
+                    b.HasOne("Remotely.Shared.Entities.ScriptRun", "ScriptRun")
                         .WithMany("Results")
                         .HasForeignKey("ScriptRunId");
 
@@ -1103,78 +1070,98 @@ namespace Remotely.Server.Migrations.Sqlite
 
                     b.Navigation("Organization");
 
+                    b.Navigation("SavedScript");
+
+                    b.Navigation("Schedule");
+
+                    b.Navigation("ScriptRun");
+                });
+
+            modelBuilder.Entity("Remotely.Shared.Entities.ScriptRun", b =>
+                {
+                    b.HasOne("Remotely.Shared.Entities.Organization", "Organization")
+                        .WithMany("ScriptRuns")
+                        .HasForeignKey("OrganizationID")
+                        .OnDelete(DeleteBehavior.ClientCascade)
+                        .IsRequired();
+
+                    b.HasOne("Remotely.Shared.Entities.SavedScript", "SavedScript")
+                        .WithMany("ScriptRuns")
+                        .HasForeignKey("SavedScriptId");
+
+                    b.HasOne("Remotely.Shared.Entities.ScriptSchedule", "Schedule")
+                        .WithMany("ScriptRuns")
+                        .HasForeignKey("ScheduleId");
+
+                    b.Navigation("Organization");
+
+                    b.Navigation("SavedScript");
+
                     b.Navigation("Schedule");
                 });
 
-            modelBuilder.Entity("Remotely.Shared.Models.ScriptRun", b =>
+            modelBuilder.Entity("Remotely.Shared.Entities.ScriptSchedule", b =>
                 {
-                    b.HasOne("Remotely.Shared.Models.Organization", "Organization")
-                        .WithMany("ScriptRuns")
-                        .HasForeignKey("OrganizationID");
-
-                    b.HasOne("Remotely.Shared.Models.ScriptSchedule", null)
-                        .WithMany("ScriptRuns")
-                        .HasForeignKey("ScriptScheduleId");
-
-                    b.Navigation("Organization");
-                });
-
-            modelBuilder.Entity("Remotely.Shared.Models.ScriptSchedule", b =>
-                {
-                    b.HasOne("Remotely.Shared.Models.RemotelyUser", "Creator")
+                    b.HasOne("Remotely.Shared.Entities.RemotelyUser", "Creator")
                         .WithMany("ScriptSchedules")
-                        .HasForeignKey("CreatorId");
+                        .HasForeignKey("CreatorId")
+                        .OnDelete(DeleteBehavior.ClientCascade)
+                        .IsRequired();
 
-                    b.HasOne("Remotely.Shared.Models.Organization", "Organization")
+                    b.HasOne("Remotely.Shared.Entities.Organization", "Organization")
                         .WithMany("ScriptSchedules")
-                        .HasForeignKey("OrganizationID");
+                        .HasForeignKey("OrganizationID")
+                        .OnDelete(DeleteBehavior.ClientCascade)
+                        .IsRequired();
 
                     b.Navigation("Creator");
 
                     b.Navigation("Organization");
                 });
 
-            modelBuilder.Entity("Remotely.Shared.Models.SharedFile", b =>
+            modelBuilder.Entity("Remotely.Shared.Entities.SharedFile", b =>
                 {
-                    b.HasOne("Remotely.Shared.Models.Organization", "Organization")
+                    b.HasOne("Remotely.Shared.Entities.Organization", "Organization")
                         .WithMany("SharedFiles")
                         .HasForeignKey("OrganizationID");
 
                     b.Navigation("Organization");
                 });
 
-            modelBuilder.Entity("Remotely.Shared.Models.RemotelyUser", b =>
+            modelBuilder.Entity("Remotely.Shared.Entities.RemotelyUser", b =>
                 {
-                    b.HasOne("Remotely.Shared.Models.Organization", "Organization")
+                    b.HasOne("Remotely.Shared.Entities.Organization", "Organization")
                         .WithMany("RemotelyUsers")
-                        .HasForeignKey("OrganizationID");
+                        .HasForeignKey("OrganizationID")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
 
                     b.Navigation("Organization");
                 });
 
-            modelBuilder.Entity("Remotely.Shared.Models.Device", b =>
+            modelBuilder.Entity("Remotely.Shared.Entities.Device", b =>
                 {
                     b.Navigation("Alerts");
 
                     b.Navigation("ScriptResults");
                 });
 
-            modelBuilder.Entity("Remotely.Shared.Models.DeviceGroup", b =>
+            modelBuilder.Entity("Remotely.Shared.Entities.DeviceGroup", b =>
                 {
                     b.Navigation("Devices");
                 });
 
-            modelBuilder.Entity("Remotely.Shared.Models.Organization", b =>
+            modelBuilder.Entity("Remotely.Shared.Entities.Organization", b =>
                 {
                     b.Navigation("Alerts");
 
                     b.Navigation("ApiTokens");
 
+                    b.Navigation("BrandingInfo");
+
                     b.Navigation("DeviceGroups");
 
                     b.Navigation("Devices");
-
-                    b.Navigation("EventLogs");
 
                     b.Navigation("InviteLinks");
 
@@ -1191,17 +1178,24 @@ namespace Remotely.Server.Migrations.Sqlite
                     b.Navigation("SharedFiles");
                 });
 
-            modelBuilder.Entity("Remotely.Shared.Models.ScriptRun", b =>
+            modelBuilder.Entity("Remotely.Shared.Entities.SavedScript", b =>
+                {
+                    b.Navigation("ScriptResults");
+
+                    b.Navigation("ScriptRuns");
+                });
+
+            modelBuilder.Entity("Remotely.Shared.Entities.ScriptRun", b =>
                 {
                     b.Navigation("Results");
                 });
 
-            modelBuilder.Entity("Remotely.Shared.Models.ScriptSchedule", b =>
+            modelBuilder.Entity("Remotely.Shared.Entities.ScriptSchedule", b =>
                 {
                     b.Navigation("ScriptRuns");
                 });
 
-            modelBuilder.Entity("Remotely.Shared.Models.RemotelyUser", b =>
+            modelBuilder.Entity("Remotely.Shared.Entities.RemotelyUser", b =>
                 {
                     b.Navigation("Alerts");
 

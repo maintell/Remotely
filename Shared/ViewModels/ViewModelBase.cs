@@ -1,64 +1,59 @@
-﻿using System;
-using System.Collections.Generic;
-using System.ComponentModel;
-using System.Linq;
+﻿using System.ComponentModel;
 using System.Runtime.CompilerServices;
-using System.Text;
-using System.Threading.Tasks;
 
-namespace Remotely.Shared.ViewModels
+namespace Remotely.Shared.ViewModels;
+
+public interface IInvokePropertyChanged
 {
-    public interface IInvokePropertyChanged
+    void InvokePropertyChanged(string propertyName = "");
+}
+
+public class ViewModelBase : INotifyPropertyChanged, IInvokePropertyChanged
+{
+    private readonly Dictionary<string, object?> _propertyBackingDictionary = new();
+
+    public event PropertyChangedEventHandler? PropertyChanged;
+
+    public void InvokePropertyChanged(string propertyName = "")
     {
-        void InvokePropertyChanged(string propertyName = "");
+        PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(propertyName));
     }
 
-    public class ViewModelBase : INotifyPropertyChanged, IInvokePropertyChanged
+    protected T? Get<T>([CallerMemberName] string? propertyName = null)
     {
-        private readonly Dictionary<string, object> _propertyBackingDictionary = new();
-
-        public event PropertyChangedEventHandler PropertyChanged;
-
-        public void InvokePropertyChanged(string propertyName = "")
+        if (string.IsNullOrWhiteSpace(propertyName))
         {
-            PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(propertyName));
+            throw new ArgumentNullException(nameof(propertyName));
         }
 
-        protected T Get<T>([CallerMemberName] string propertyName = null)
+        if (_propertyBackingDictionary.TryGetValue(propertyName, out var value) &&
+            value is T typedValue)
         {
-            if (string.IsNullOrWhiteSpace(propertyName))
-            {
-                throw new ArgumentNullException(nameof(propertyName));
-            }
-
-            if (_propertyBackingDictionary.TryGetValue(propertyName, out var value))
-            {
-                return (T)value;
-            }
-
-            return default(T);
+            return typedValue;
         }
 
-        protected bool Set<T>(T newValue, [CallerMemberName] string propertyName = null)
+        return default;
+    }
+
+    protected bool Set<T>(T? newValue, [CallerMemberName] string? propertyName = null)
+    {
+        if (string.IsNullOrWhiteSpace(propertyName))
         {
-            if (string.IsNullOrWhiteSpace(propertyName))
-            {
-                throw new ArgumentNullException(nameof(propertyName));
-            }
-
-            if (EqualityComparer<T>.Default.Equals(newValue, Get<T>(propertyName)))
-            {
-                return false;
-            }
-
-            _propertyBackingDictionary[propertyName] = newValue;
-            OnPropertyChanged(propertyName);
-            return true;
+            throw new ArgumentNullException(nameof(propertyName));
         }
 
-        private void OnPropertyChanged(string propertyName)
+        if (EqualityComparer<T>.Default.Equals(newValue, Get<T>(propertyName)))
         {
-            PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(propertyName));
+            return false;
         }
+
+        _propertyBackingDictionary[propertyName] = newValue;
+        OnPropertyChanged(propertyName);
+        return true;
+    }
+
+    private void OnPropertyChanged(string propertyName)
+    {
+        PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(propertyName));
     }
 }

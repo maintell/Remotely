@@ -1,78 +1,107 @@
-﻿using Microsoft.AspNetCore.Mvc;
+﻿using Remotely.Shared.Extensions;
+using Microsoft.AspNetCore.Mvc;
+using Microsoft.EntityFrameworkCore;
 using Remotely.Server.Auth;
+using Remotely.Server.Extensions;
 using Remotely.Server.Services;
-using Remotely.Shared.Models;
+using Remotely.Shared.Dtos;
 using System.Text;
-using System.Threading.Tasks;
 
-// For more information on enabling Web API for empty projects, visit https://go.microsoft.com/fwlink/?LinkID=397860
+namespace Remotely.Server.API;
 
-namespace Remotely.Server.API
+[Route("api/[controller]")]
+[ApiController]
+public class ScriptResultsController : ControllerBase
 {
-    [Route("api/[controller]")]
-    [ApiController]
-    public class ScriptResultsController : ControllerBase
+    private readonly IDataService _dataService;
+    private readonly IEmailSenderEx _emailSender;
+    private readonly ILogger<ScriptResultsController> _logger;
+
+    public ScriptResultsController(
+        IDataService dataService, 
+        IEmailSenderEx emailSenderEx,
+        ILogger<ScriptResultsController> logger)
     {
-        private readonly IDataService _dataService;
-        private readonly IEmailSenderEx _emailSender;
+        _dataService = dataService;
+        _emailSender = emailSenderEx;
+        _logger = logger;
+    }
 
-        public ScriptResultsController(IDataService dataService, IEmailSenderEx emailSenderEx)
+    [HttpGet]
+    [ServiceFilter(typeof(ApiAuthorizationFilter))]
+    public ActionResult DownloadAll()
+    {
+        if (!Request.Headers.TryGetOrganizationId(out var orgId))
         {
-            _dataService = dataService;
-            _emailSender = emailSenderEx;
+            return Unauthorized();
         }
 
+        var commandResults = _dataService.GetAllCommandResults(orgId);
+        var content = System.Text.Json.JsonSerializer.Serialize(commandResults);
+        return File(Encoding.UTF8.GetBytes(content), "application/octet-stream", "ScriptHistory.json");       
+    }
 
-        // GET: api/<controller>
-        [HttpGet]
-        [ServiceFilter(typeof(ApiAuthorizationFilter))]
-        public ActionResult DownloadAll()
+    [HttpGet("{scriptId}")]
+    [ServiceFilter(typeof(ApiAuthorizationFilter))]
+    public ActionResult<FileResult> DownloadResults(string scriptId)
+    {
+        if (!Request.Headers.TryGetOrganizationId(out var orgId))
         {
-            Request.Headers.TryGetValue("OrganizationID", out var orgID);
-
-            var commandResults = _dataService.GetAllCommandResults(orgID);
-            var content = System.Text.Json.JsonSerializer.Serialize(commandResults);
-            return File(Encoding.UTF8.GetBytes(content), "application/octet-stream", "ScriptHistory.json");       
+            return Unauthorized();
         }
 
-        [HttpGet("{scriptId}")]
-        [ServiceFilter(typeof(ApiAuthorizationFilter))]
-        public FileResult DownloadResults(string scriptId)
-        {
-            Request.Headers.TryGetValue("OrganizationID", out var orgID);
+        var commandResult = _dataService.GetScriptResult(scriptId, orgId);
+        var content = System.Text.Json.JsonSerializer.Serialize(commandResult);
+        return File(Encoding.UTF8.GetBytes(content), "application/octet-stream", "ScriptResults.json");
+    }
 
-            var commandResult = _dataService.GetScriptResult(scriptId, orgID);
-            var content = System.Text.Json.JsonSerializer.Serialize(commandResult);
-            return File(Encoding.UTF8.GetBytes(content), "application/octet-stream", "ScriptResults.json");
+
+    [HttpPost]
+    [ServiceFilter(typeof(ExpiringTokenFilter))]
+    public async Task<ActionResult<ScriptResultResponse>> Post([FromBody] ScriptResultDto result)
+    {
+        var scriptResult = await _dataService.AddScriptResult(result);
+
+        if (!scriptResult.IsSuccess)
+        {
+            _logger.LogResult(scriptResult);
+            return BadRequest();
         }
 
+        var errorOut = result.ErrorOutput ?? Array.Empty<string>();
 
-        [HttpPost]
-        [ServiceFilter(typeof(ExpiringTokenFilter))]
-        public async Task<ScriptResult> Post([FromBody] ScriptResult result)
+        if (result.HadErrors && result.SavedScriptId.HasValue)
         {
-            _dataService.AddOrUpdateScriptResult(result);
-
-            if (result.HadErrors && result.SavedScriptId.HasValue)
+            var savedScriptResult = await _dataService.GetSavedScript(result.SavedScriptId.Value);
+            if (!savedScriptResult.IsSuccess)
             {
-                var savedScript = await _dataService.GetSavedScript(result.SavedScriptId.Value);
-                if (savedScript.GenerateAlertOnError)
+                return NotFound();
+            }
+
+            var savedScript = savedScriptResult.Value;
+            if (savedScript.GenerateAlertOnError)
+            {
+                await _dataService.AddAlert(result.DeviceID,
+                    savedScript.OrganizationID,
+                    $"Alert triggered while running script {savedScript.Name}.",
+                    string.Join("\n", errorOut));
+            }
+
+            if (savedScript.SendEmailOnError)
+            {
+                var deviceResult = await _dataService.GetDevice(
+                    result.DeviceID, 
+                    query => query.Include(x => x.DeviceGroup));
+
+                if (!deviceResult.IsSuccess)
                 {
-                    await _dataService.AddAlert(result.DeviceID,
-                        result.OrganizationID,
-                        $"Alert triggered while running script {savedScript.Name}.",
-                        string.Join("\n", result.ErrorOutput));
+                    return NotFound();
                 }
 
-                if (savedScript.SendEmailOnError)
+                var device = deviceResult.Value;
+
+                if (!string.IsNullOrWhiteSpace(savedScript.SendErrorEmailTo))
                 {
-                    var device = _dataService.GetDevice(result.DeviceID);
-
-                    if (!string.IsNullOrWhiteSpace(device.DeviceGroupID))
-                    {
-                        device.DeviceGroup = await _dataService.GetDeviceGroup(device.DeviceGroupID);
-                    }
-
                     await _emailSender.SendEmailAsync(savedScript.SendErrorEmailTo,
                         "Script Run Alert",
                         $"An alert was triggered while running script {savedScript.Name} on device {device.DeviceName}. <br /><br />" +
@@ -82,16 +111,19 @@ namespace Remotely.Server.API
                             $"Device Group (if any): {device.DeviceGroup?.Name} <br /> " +
 
                             $"Error Output: <br /> <br /> " +
-                            $"{string.Join("<br /> <br />", result.ErrorOutput)}");
+                            $"{string.Join("<br /> <br />", errorOut)}");
                 }
             }
-
-            if (result.ScriptRunId.HasValue)
-            {
-                await _dataService.AddScriptResultToScriptRun(result.ID, result.ScriptRunId.Value);
-            }
-
-            return result;
         }
+
+        if (result.ScriptRunId.HasValue)
+        {
+            await _dataService.AddScriptResultToScriptRun(scriptResult.Value.ID, result.ScriptRunId.Value);
+        }
+
+        return new ScriptResultResponse()
+        {
+            Id = scriptResult.Value.ID
+        };
     }
 }
